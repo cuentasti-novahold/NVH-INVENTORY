@@ -1,0 +1,412 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "mysql"
+}
+
+// ═══════════════════════════════════════════════════════
+// AUTH — NextAuth.js v5 + Azure AD
+// ═══════════════════════════════════════════════════════
+
+model User {
+  id            String       @id @default(cuid())
+  name          String?
+  email         String       @unique
+  emailVerified DateTime?
+  image         String?
+  role          UserRole     @default(VIEWER)
+  employeeId    String?      @unique
+  employee      Employee?    @relation(fields: [employeeId], references: [id])
+  accounts      Account[]
+  sessions      Session[]
+  deliveries    Assignment[] @relation("DeliveredBy")
+  auditLogs     AuditLog[]
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  @@map("users")
+}
+
+enum UserRole {
+  SUPER_ADMIN
+  ADMIN
+  MANAGER
+  TECHNICIAN
+  VIEWER
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String? @db.Text
+  access_token      String? @db.Text
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String? @db.Text
+  session_state     String?
+  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@map("accounts")
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("sessions")
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+  @@map("verification_tokens")
+}
+
+// ═══════════════════════════════════════════════════════
+// LOCALIZACIÓN — País → Ciudad → Sede → Bodega
+// ═══════════════════════════════════════════════════════
+
+model Country {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  code      String   @unique
+  cities    City[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("countries")
+}
+
+model City {
+  id        String     @id @default(cuid())
+  name      String
+  countryId String
+  country   Country    @relation(fields: [countryId], references: [id])
+  locations Location[]
+  employees Employee[]
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+
+  @@unique([name, countryId])
+  @@map("cities")
+}
+
+model Location {
+  id        String     @id @default(cuid())
+  name      String
+  address   String?
+  cityId    String
+  city      City       @relation(fields: [cityId], references: [id])
+  bodegas   Bodega[]
+  employees Employee[]
+  assets    Asset[]
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+
+  @@map("locations")
+}
+
+model Bodega {
+  id         String   @id @default(cuid())
+  name       String
+  locationId String
+  location   Location @relation(fields: [locationId], references: [id])
+  assets     Asset[]
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@map("bodegas")
+}
+
+// ═══════════════════════════════════════════════════════
+// ORGANIZACIÓN — Departamentos y Empleados
+// ═══════════════════════════════════════════════════════
+
+model Department {
+  id        String     @id @default(cuid())
+  name      String     @unique
+  employees Employee[]
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+
+  @@map("departments")
+}
+
+model Employee {
+  id           String       @id @default(cuid())
+  fullName     String
+  email        String       @unique
+  phone        String?
+  position     String?
+  departmentId String?
+  department   Department?  @relation(fields: [departmentId], references: [id])
+  cityId       String?
+  city         City?        @relation(fields: [cityId], references: [id])
+  locationId   String?
+  location     Location?    @relation(fields: [locationId], references: [id])
+  isActive     Boolean      @default(true)
+  user         User?
+  assignments  Assignment[]
+  createdAt    DateTime     @default(now())
+  updatedAt    DateTime     @updatedAt
+
+  @@map("employees")
+}
+
+// ═══════════════════════════════════════════════════════
+// FINANCIERO — Monedas y Tipos de Cambio
+// ═══════════════════════════════════════════════════════
+
+model Currency {
+  id            String         @id @default(cuid())
+  code          String         @unique
+  name          String
+  symbol        String
+  isBase        Boolean        @default(false)
+  exchangeRates ExchangeRate[]
+  assets        Asset[]
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+
+  @@map("currencies")
+}
+
+model ExchangeRate {
+  id            String   @id @default(cuid())
+  currencyId    String
+  currency      Currency @relation(fields: [currencyId], references: [id])
+  rateToBase    Decimal  @db.Decimal(18, 6)
+  effectiveDate DateTime
+  source        String?
+  createdAt     DateTime @default(now())
+
+  @@index([currencyId, effectiveDate])
+  @@map("exchange_rates")
+}
+
+// ═══════════════════════════════════════════════════════
+// CATEGORÍAS
+// ═══════════════════════════════════════════════════════
+
+model Category {
+  id                String     @id @default(cuid())
+  name              String     @unique
+  prefix            String     @unique
+  description       String?
+  fieldConfig       Json?
+  defaultUsefulLife Int?
+  sequence          Int        @default(0)
+  parentId          String?
+  parent            Category?  @relation("SubCategories", fields: [parentId], references: [id])
+  children          Category[] @relation("SubCategories")
+  assets            Asset[]
+  createdAt         DateTime   @default(now())
+  updatedAt         DateTime   @updatedAt
+
+  @@map("categories")
+}
+
+// ═══════════════════════════════════════════════════════
+// ACTIVOS — Tabla única para todos los activos físicos
+// ═══════════════════════════════════════════════════════
+
+model Asset {
+  id                    String                 @id @default(cuid())
+  assetCode             String                 @unique
+  assetTag              String?
+  hostname              String?
+  categoryId            String
+  category              Category               @relation(fields: [categoryId], references: [id])
+  brand                 String?
+  model                 String?
+  serialNumber          String?                @unique
+  processor             String?
+  ram                   String?
+  storageCapacity       String?
+  storageType           StorageType?
+  operatingSystem       String?
+  phoneNumber           String?
+  imei                  String?
+  purchasePrice         Decimal?               @db.Decimal(15, 2)
+  currencyCode          String?                @default("COP")
+  currency              Currency?              @relation(fields: [currencyCode], references: [code])
+  purchasePriceBase     Decimal?               @db.Decimal(15, 2)
+  salvageValue          Decimal?               @db.Decimal(15, 2)
+  usefulLifeYears       Int?
+  purchaseDate          DateTime?
+  generalStatus         AssetStatus            @default(GOOD)
+  functionalStatus      AssetStatus            @default(GOOD)
+  lastRevision          DateTime?
+  notes                 String?                @db.Text
+  locationId            String?
+  location              Location?              @relation(fields: [locationId], references: [id])
+  bodegaId              String?
+  bodega                Bodega?                @relation(fields: [bodegaId], references: [id])
+  parentAssetId         String?
+  parentAsset           Asset?                 @relation("AssetComponents", fields: [parentAssetId], references: [id])
+  components            Asset[]                @relation("AssetComponents")
+  metadata              Json?
+  isActive              Boolean                @default(true)
+  assignments           Assignment[]
+  maintenances          Maintenance[]
+  depreciationSnapshots DepreciationSnapshot[]
+  auditLogs             AuditLog[]
+  createdAt             DateTime               @default(now())
+  updatedAt             DateTime               @updatedAt
+
+  @@map("assets")
+}
+
+enum StorageType {
+  SSD
+  HDD
+  NVME
+  EMMC
+}
+
+enum AssetStatus {
+  GOOD
+  REGULAR
+  BAD
+  DAMAGED
+  RETIRED
+}
+
+// ═══════════════════════════════════════════════════════
+// ASIGNACIONES
+// ═══════════════════════════════════════════════════════
+
+model Assignment {
+  id            String           @id @default(cuid())
+  assetId       String
+  asset         Asset            @relation(fields: [assetId], references: [id])
+  employeeId    String
+  employee      Employee         @relation(fields: [employeeId], references: [id])
+  assignedAt    DateTime         @default(now())
+  returnedAt    DateTime?
+  deliveredById String?
+  deliveredBy   User?            @relation("DeliveredBy", fields: [deliveredById], references: [id])
+  status        AssignmentStatus @default(ACTIVE)
+  notes         String?          @db.Text
+  createdAt     DateTime         @default(now())
+  updatedAt     DateTime         @updatedAt
+
+  @@map("assignments")
+}
+
+enum AssignmentStatus {
+  ACTIVE
+  RETURNED
+  TRANSFERRED
+}
+
+// ═══════════════════════════════════════════════════════
+// DEPRECIACIÓN — Snapshots anuales para contabilidad
+// ═══════════════════════════════════════════════════════
+
+model DepreciationSnapshot {
+  id                  String   @id @default(cuid())
+  assetId             String
+  asset               Asset    @relation(fields: [assetId], references: [id])
+  snapshotDate        DateTime
+  bookValueBase       Decimal  @db.Decimal(15, 2)
+  accumulatedDeprBase Decimal  @db.Decimal(15, 2)
+  annualDeprBase      Decimal  @db.Decimal(15, 2)
+  exchangeRateUsed    Decimal? @db.Decimal(18, 6)
+  isFullyDepreciated  Boolean  @default(false)
+  createdAt           DateTime @default(now())
+
+  @@index([assetId, snapshotDate])
+  @@map("depreciation_snapshots")
+}
+
+// ═══════════════════════════════════════════════════════
+// MANTENIMIENTOS
+// ═══════════════════════════════════════════════════════
+
+model Maintenance {
+  id          String          @id @default(cuid())
+  assetId     String
+  asset       Asset           @relation(fields: [assetId], references: [id])
+  type        MaintenanceType
+  description String?         @db.Text
+  performedBy String?
+  performedAt DateTime        @default(now())
+  nextReview  DateTime?
+  createdAt   DateTime        @default(now())
+  updatedAt   DateTime        @updatedAt
+
+  @@map("maintenances")
+}
+
+enum MaintenanceType {
+  REVISION
+  REPAIR
+  UPGRADE
+  CLEANING
+}
+
+// ═══════════════════════════════════════════════════════
+// AUDITORÍA — Log inmutable
+// ═══════════════════════════════════════════════════════
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  userId    String?
+  user      User?    @relation(fields: [userId], references: [id])
+  assetId   String?
+  asset     Asset?   @relation(fields: [assetId], references: [id])
+  action    String
+  entity    String
+  entityId  String
+  before    Json?
+  after     Json?
+  ip        String?
+  userAgent String?
+  createdAt DateTime @default(now())
+
+  @@index([entityId, entity])
+  @@index([assetId])
+  @@index([userId])
+  @@map("audit_logs")
+}
+
+// ═══════════════════════════════════════════════════════
+// IMPORTACIONES — Historial de cargas masivas
+// ═══════════════════════════════════════════════════════
+
+model ImportLog {
+  id          String       @id @default(cuid())
+  userId      String
+  entity      String
+  fileName    String
+  totalRows   Int
+  successRows Int
+  errorRows   Int
+  errors      Json?
+  status      ImportStatus
+  createdAt   DateTime     @default(now())
+
+  @@map("import_logs")
+}
+
+enum ImportStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+}
