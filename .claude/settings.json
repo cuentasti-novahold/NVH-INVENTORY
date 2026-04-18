@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Write(/Users/carlosvelasco/Documents/carlos/novahold-inventory/src/app/(dashboard)/*)"
+    ]
+  }
+}
