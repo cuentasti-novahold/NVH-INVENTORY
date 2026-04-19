@@ -1,36 +1,339 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Novahold Inventory ERP
 
-## Getting Started
+Sistema de gestión de inventario tecnológico para activos de empresa — equipos, periféricos y accesorios. Construido con Next.js 16 App Router, Prisma 7, MySQL 8 y autenticación corporativa vía Azure AD.
 
-First, run the development server:
+---
+
+## Stack tecnológico
+
+| Capa | Tecnología |
+|------|-----------|
+| Framework | Next.js 16.2.4 — App Router + RSC |
+| Base de datos | MySQL 8 + Prisma 7 |
+| Autenticación | NextAuth v5 beta + Azure AD (OAuth2) |
+| UI | shadcn/ui + Tailwind CSS 4 + Base UI |
+| Tablas | TanStack Table v8 |
+| Formularios | React Hook Form + Yup |
+| Gráficos | Recharts 3 (via shadcn/chart) |
+| QR | `qrcode` (generación) + `html5-qrcode` (escaneo) |
+| Excel | SheetJS / `xlsx` |
+| Notificaciones | Sonner |
+| Íconos | Lucide React |
+| Testing | Vitest + Testing Library |
+| E2E | Playwright |
+| Package manager | pnpm |
+
+---
+
+## Requisitos previos
+
+- Node.js 20+
+- pnpm 9+
+- MySQL 8 corriendo localmente o en Docker
+- Aplicación registrada en Azure AD con permisos de email/profile
+
+---
+
+## Instalación
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
+# 1. Clonar el repositorio
+git clone <url>
+cd novahold-inventory
+
+# 2. Instalar dependencias
+pnpm install
+
+# 3. Configurar variables de entorno
+cp .env.example .env
+# Editar .env con tus credenciales
+
+# 4. Ejecutar migraciones
+npx prisma migrate dev
+
+# 5. Cargar datos iniciales (categorías, monedas, países)
+npx prisma db seed
+
+# 6. Iniciar servidor de desarrollo
 pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+---
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Variables de entorno
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+```env
+# Base de datos
+DATABASE_URL="mysql://user:password@localhost:3306/novahold_inventory"
 
-## Learn More
+# NextAuth
+AUTH_SECRET="<string-aleatorio-32-chars>"
+AUTH_URL="http://localhost:3000"
 
-To learn more about Next.js, take a look at the following resources:
+# Azure AD
+AUTH_AZURE_AD_ID="<client-id>"
+AUTH_AZURE_AD_SECRET="<client-secret>"
+AUTH_AZURE_AD_TENANT_ID="<tenant-id>"
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+---
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Comandos disponibles
 
-## Deploy on Vercel
+```bash
+pnpm dev                    # Servidor de desarrollo en http://localhost:3000
+pnpm build                  # Build de producción
+pnpm lint                   # ESLint
+pnpm test:unit              # Tests unitarios (Vitest)
+pnpm test:watch             # Tests en modo watch
+pnpm test:coverage          # Cobertura de tests
+pnpm test:e2e               # Tests E2E (Playwright)
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+npx prisma migrate dev --name <nombre>   # Nueva migración
+npx prisma db seed                        # Seed de datos iniciales
+npx prisma studio                         # GUI de base de datos
+```
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+---
+
+## Roles y permisos (RBAC)
+
+| Rol | Capacidades |
+|-----|-------------|
+| `SUPER_ADMIN` | Acceso total + gestión de usuarios + configuración del sistema |
+| `ADMIN` | CRUD completo de activos, empleados y asignaciones |
+| `MANAGER` | Lectura total + crear asignaciones en su área |
+| `TECHNICIAN` | Crear/editar activos + registrar mantenimientos |
+| `VIEWER` | Solo lectura de activos y empleados |
+
+> El rol por defecto al primer login es `VIEWER`. Un `SUPER_ADMIN` lo sube desde `/settings/users`.
+
+Solo pueden acceder usuarios con email `@novahold.com` (restricción de dominio en NextAuth).
+
+---
+
+## Estructura del proyecto
+
+```
+novahold-inventory/
+├── prisma/
+│   ├── schema.prisma          # Modelos de datos
+│   └── seed.ts                # Datos iniciales
+│
+├── src/
+│   ├── app/
+│   │   ├── (dashboard)/       # Rutas protegidas del ERP
+│   │   │   ├── page.tsx               # Dashboard home / KPIs
+│   │   │   ├── assets/                # Módulo activos
+│   │   │   ├── employees/             # Módulo empleados
+│   │   │   ├── assignments/           # Módulo asignaciones
+│   │   │   ├── movimientos/           # Módulo traslados (Kardex)
+│   │   │   ├── analytics/             # Módulo analytics
+│   │   │   └── settings/              # Configuración
+│   │   │       ├── categories/        # Categorías de activos
+│   │   │       ├── locations/         # Sedes y bodegas
+│   │   │       └── users/             # Gestión de usuarios
+│   │   └── login/                     # Página de autenticación
+│   │
+│   ├── components/
+│   │   ├── ui/                # Componentes shadcn/ui
+│   │   ├── dashboard/         # PageHeader, sidebar
+│   │   ├── tables/            # MainDataTable, TableSkeleton
+│   │   └── show/              # Show (renderizado condicional)
+│   │
+│   ├── shared/
+│   │   └── presentation/
+│   │       └── components/
+│   │           └── form-builder/
+│   │               └── CrudFormDialog.tsx   # Diálogo genérico de formularios
+│   │
+│   ├── modules/               # Lógica de dominio (DDD)
+│   │   └── {módulo}/
+│   │       ├── domain/
+│   │       ├── application/
+│   │       └── infrastructure/
+│   │
+│   ├── auth.ts                # Configuración NextAuth
+│   ├── auth.config.ts         # Callbacks OAuth
+│   └── lib/
+│       ├── prisma.ts          # Cliente Prisma singleton
+│       ├── permissions.ts     # Matriz RBAC
+│       └── utils.ts           # cn(), helpers
+│
+└── openspec/                  # Especificaciones de features (SDD)
+```
+
+---
+
+## Diagrama Entidad-Relación
+
+```
+╔══════════════════════════════════════════════════════════════════════════════════╗
+║  AUTH                                                                            ║
+╠══════════════════════════════════════════════════════════════════════════════════╣
+║                                                                                  ║
+║  ┌──────────┐  1:N  ┌──────────┐        ┌─────────────────────┐                ║
+║  │   User   │──────►│ Account  │        │  VerificationToken   │                ║
+║  │──────────│       │──────────│        └─────────────────────┘                ║
+║  │ id       │       │ userId   │                                                ║
+║  │ name     │  1:N  │ provider │        ┌──────────┐                           ║
+║  │ email    │──────►│ Session  │        │ expires  │                           ║
+║  │ role     │       └──────────┘        └──────────┘                           ║
+║  │employeeId│                                                                   ║
+║  └────┬─────┘                                                                   ║
+║       │ 0..1 ↔ 1 (Employee)                                                    ║
+╚═══════╪════════════════════════════════════════════════════════════════════════╝ ║
+        │                                                                          
+╔═══════╪════════════════════════════════════════════════════════════════════════╗
+║  ORGANIZACIÓN                                                                   ║
+╠═══════╪════════════════════════════════════════════════════════════════════════╣
+║       ▼                                                                         ║
+║  ┌────────────┐  N:1  ┌────────────┐                                           ║
+║  │  Employee  │──────►│ Department │                                            ║
+║  │────────────│       └────────────┘                                            ║
+║  │ id         │                                                                 ║
+║  │ fullName   │  N:1  ┌──────────┐  N:1  ┌─────────┐  N:1  ┌─────────┐       ║
+║  │ email      │──────►│ Location │──────►│  City   │──────►│ Country │       ║
+║  │ position   │       │──────────│       └─────────┘       └─────────┘       ║
+║  │ isActive   │       │ name     │                                             ║
+║  │ cityId     │──────►│ address  │  1:N  ┌─────────┐                          ║
+║  └────────────┘  N:1  └──────────┘──────►│ Bodega  │                          ║
+║                                          └─────────┘                           ║
+╚════════════════════════════════════════════════════════════════════════════════╝
+
+╔════════════════════════════════════════════════════════════════════════════════╗
+║  CATÁLOGO                                                                      ║
+╠════════════════════════════════════════════════════════════════════════════════╣
+║                                                                                ║
+║  ┌──────────────┐  auto-ref  ┌──────────────┐                                 ║
+║  │   Category   │───────────►│   Category   │  (padre → hijo)                 ║
+║  │──────────────│  N:1       └──────────────┘                                 ║
+║  │ id           │                                                              ║
+║  │ name         │  fieldConfig (JSON) → controla visibilidad de campos         ║
+║  │ prefix       │  sequence  (INT)    → genera assetCode atómico              ║
+║  │ fieldConfig  │                                                              ║
+║  │ sequence     │                                                              ║
+║  └──────────────┘                                                              ║
+╚════════════════════════════════════════════════════════════════════════════════╝
+
+╔════════════════════════════════════════════════════════════════════════════════╗
+║  FINANCIERO                                                                    ║
+╠════════════════════════════════════════════════════════════════════════════════╣
+║                                                                                ║
+║  ┌──────────┐  1:N  ┌──────────────┐                                          ║
+║  │ Currency │──────►│ ExchangeRate │                                           ║
+║  │──────────│       │──────────────│                                           ║
+║  │ code     │       │ rateToBase   │  (historial TRM por fecha efectiva)       ║
+║  │ isBase   │       │ effectiveDate│                                           ║
+║  └──────────┘       └──────────────┘                                           ║
+╚════════════════════════════════════════════════════════════════════════════════╝
+
+╔════════════════════════════════════════════════════════════════════════════════╗
+║  ACTIVOS — tabla central del sistema                                           ║
+╠════════════════════════════════════════════════════════════════════════════════╣
+║                                                                                ║
+║         ┌────────────────────────────────────────────────────────┐            ║
+║         │                       Asset                             │            ║
+║         │────────────────────────────────────────────────────────│            ║
+║         │ id                                                       │            ║
+║         │ assetCode          → único, ej: NVH-PC-00001            │            ║
+║         │ categoryId         → Category                           │            ║
+║         │ brand · model · serialNumber                            │            ║
+║         │ processor · ram · storageCapacity · storageType         │ specs      ║
+║         │ operatingSystem                                          │            ║
+║         │ phoneNumber · imei                                       │ celulares  ║
+║         │ purchasePrice · currencyCode → Currency                 │            ║
+║         │ purchasePriceBase · salvageValue · usefulLifeYears       │ financiero ║
+║         │ purchaseDate                                             │            ║
+║         │ generalStatus · functionalStatus                         │ estado     ║
+║         │ locationId → Location                                    │            ║
+║         │ bodegaId   → Bodega                                      │ ubicación  ║
+║         │ parentAssetId → Asset (self-ref: componentes)           │            ║
+║         │ isActive · notes · metadata                             │            ║
+║         └─────────────────────────┬──────────────────────────────┘            ║
+║                                   │ 1:N                                       ║
+║          ┌──────────┬─────────────┼──────────────┬──────────────┐            ║
+║          ▼          ▼             ▼              ▼              ▼             ║
+║  ┌────────────┐ ┌───────────┐ ┌──────────────┐ ┌──────────┐ ┌──────────┐  ║
+║  │ Assignment │ │Maintenance│ │Depreciation  │ │AssetMove-│ │AuditLog  │  ║
+║  │────────────│ │───────────│ │Snapshot      │ │ment      │ │──────────│  ║
+║  │ assetId    │ │ assetId   │ │──────────────│ │──────────│ │ assetId  │  ║
+║  │ employeeId │ │ type      │ │ snapshotDate │ │fromLocId │ │ action   │  ║
+║  │ assignedAt │ │ performedAt│ │ bookValueBase│ │toLocId   │ │ entity   │  ║
+║  │ returnedAt │ │ nextReview│ │ annualDepr   │ │moveType  │ │ before   │  ║
+║  │ status     │ └───────────┘ └──────────────┘ │movedById │ │ after    │  ║
+║  └─────┬──────┘                                └──────────┘ └──────────┘  ║
+║        │ N:1                                                                ║
+║        ▼                                                                    ║
+║  ┌────────────┐                                                             ║
+║  │  Employee  │                                                             ║
+║  └────────────┘                                                             ║
+╚════════════════════════════════════════════════════════════════════════════════╝
+
+╔════════════════════════════════════════════════════════════════════════════════╗
+║  IMPORTACIONES                                                                 ║
+╠════════════════════════════════════════════════════════════════════════════════╣
+║                                                                                ║
+║  ┌──────────────┐                                                              ║
+║  │  ImportLog   │  (independiente — historial de cargas masivas)               ║
+║  │──────────────│                                                              ║
+║  │ userId       │                                                              ║
+║  │ entity       │                                                              ║
+║  │ fileName     │                                                              ║
+║  │ totalRows    │                                                              ║
+║  │ successRows  │                                                              ║
+║  │ status       │                                                              ║
+║  └──────────────┘                                                              ║
+╚════════════════════════════════════════════════════════════════════════════════╝
+```
+
+---
+
+## Generación de códigos de activo
+
+El código `NVH-{PREFIX}-{SECUENCIA}` es atómico y sin huecos:
+
+```
+Categoría: prefix="PC", sequence=42
+→ assetCode = "NVH-PC-00043"
+```
+
+Implementación con `$transaction`: incrementa el `sequence` de la categoría y crea el activo en una sola operación. Si hay colisión por desincronización, reintenta automáticamente hasta 20 veces.
+
+---
+
+## Depreciación
+
+Calculada dinámicamente (nunca almacenada, salvo snapshots anuales):
+
+```
+Depreciación anual    = (Precio base COP − Valor residual) / Vida útil (años)
+Depreciación acumulada = min(depAnual × años transcurridos, precioBase − valorResidual)
+Valor en libros        = Precio base − Depreciación acumulada
+```
+
+Los snapshots anuales se guardan en `DepreciationSnapshot` para auditoría contable.
+
+---
+
+## Importación masiva (Excel)
+
+1. Usuario sube archivo `.xlsx`
+2. SheetJS parsea fila por fila en el servidor
+3. Preview con filas válidas / inválidas
+4. Confirmación → insert masivo + registro en `ImportLog`
+
+---
+
+## Autenticación y acceso
+
+- Proveedor: Azure AD — solo emails `@novahold.com`
+- Primer login → rol `VIEWER` asignado automáticamente
+- `SUPER_ADMIN` cambia roles desde `/settings/users`
+- Middleware protege todas las rutas `/(dashboard)/*`
+
+---
+
+## Documentación adicional
+
+- [`MODULES.md`](./MODULES.md) — Descripción detallada de cada módulo y sus flujos

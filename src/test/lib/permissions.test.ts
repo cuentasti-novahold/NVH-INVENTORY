@@ -72,9 +72,13 @@ describe('hasPermission', () => {
         expect(hasPermission('VIEWER', 'employees', action)).toBe(false);
       }
     });
-    it('denies categories, locations, assignments', () => {
-      expect(hasPermission('VIEWER', 'categories', 'read')).toBe(false);
-      expect(hasPermission('VIEWER', 'locations', 'read')).toBe(false);
+    it('allows categories:read and locations:read', () => {
+      expect(hasPermission('VIEWER', 'categories', 'read')).toBe(true);
+      expect(hasPermission('VIEWER', 'locations', 'read')).toBe(true);
+    });
+    it('denies write access to categories, locations, and assignments', () => {
+      expect(hasPermission('VIEWER', 'categories', 'create')).toBe(false);
+      expect(hasPermission('VIEWER', 'locations', 'create')).toBe(false);
       expect(hasPermission('VIEWER', 'assignments', 'create')).toBe(false);
     });
   });

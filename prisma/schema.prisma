@@ -1,5 +1,5 @@
 generator client {
-  provider = "prisma-client"
+  provider = "prisma-client-js"
   output   = "../src/generated/prisma"
 }
 
@@ -22,8 +22,9 @@ model User {
   employee      Employee?    @relation(fields: [employeeId], references: [id])
   accounts      Account[]
   sessions      Session[]
-  deliveries    Assignment[] @relation("DeliveredBy")
+  deliveries    Assignment[]    @relation("DeliveredBy")
   auditLogs     AuditLog[]
+  movements     AssetMovement[] @relation("MovementsBy")
   createdAt     DateTime     @default(now())
   updatedAt     DateTime     @updatedAt
 
@@ -111,11 +112,13 @@ model Location {
   address   String?
   cityId    String
   city      City       @relation(fields: [cityId], references: [id])
-  bodegas   Bodega[]
-  employees Employee[]
-  assets    Asset[]
-  createdAt DateTime   @default(now())
-  updatedAt DateTime   @updatedAt
+  bodegas        Bodega[]
+  employees      Employee[]
+  assets         Asset[]
+  movementsFrom  AssetMovement[] @relation("MovementsFrom")
+  movementsTo    AssetMovement[] @relation("MovementsTo")
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
 
   @@map("locations")
 }
@@ -124,10 +127,12 @@ model Bodega {
   id         String   @id @default(cuid())
   name       String
   locationId String
-  location   Location @relation(fields: [locationId], references: [id])
-  assets     Asset[]
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
+  location       Location        @relation(fields: [locationId], references: [id])
+  assets         Asset[]
+  movementsFrom  AssetMovement[] @relation("MovementsFromBodega")
+  movementsTo    AssetMovement[] @relation("MovementsToBodega")
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
 
   @@map("bodegas")
 }
@@ -265,6 +270,7 @@ model Asset {
   maintenances          Maintenance[]
   depreciationSnapshots DepreciationSnapshot[]
   auditLogs             AuditLog[]
+  movements             AssetMovement[]
   createdAt             DateTime               @default(now())
   updatedAt             DateTime               @updatedAt
 
@@ -383,6 +389,45 @@ model AuditLog {
   @@index([assetId])
   @@index([userId])
   @@map("audit_logs")
+}
+
+// ═══════════════════════════════════════════════════════
+// TRASLADOS — Kardex de movimientos físicos de activos
+// ═══════════════════════════════════════════════════════
+
+enum MovementType {
+  RELOCATION
+  LOAN
+  REPAIR
+  RETURN_FROM_REPAIR
+  AUDIT
+}
+
+model AssetMovement {
+  id             String        @id @default(cuid())
+  assetId        String
+  asset          Asset         @relation(fields: [assetId], references: [id])
+  fromLocationId String?
+  fromLocation   Location?     @relation("MovementsFrom", fields: [fromLocationId], references: [id])
+  toLocationId   String
+  toLocation     Location      @relation("MovementsTo", fields: [toLocationId], references: [id])
+  fromBodegaId   String?
+  fromBodega     Bodega?       @relation("MovementsFromBodega", fields: [fromBodegaId], references: [id])
+  toBodegaId     String?
+  toBodega       Bodega?       @relation("MovementsToBodega", fields: [toBodegaId], references: [id])
+  movementType   MovementType
+  reason         String?
+  notes          String?       @db.Text
+  movedById      String
+  movedBy        User          @relation("MovementsBy", fields: [movedById], references: [id])
+  movedAt        DateTime      @default(now())
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  @@index([assetId])
+  @@index([toLocationId])
+  @@index([movedAt])
+  @@map("asset_movements")
 }
 
 // ═══════════════════════════════════════════════════════

@@ -2,7 +2,7 @@ import type { UserRole } from '@/generated/prisma';
 
 export type Resource =
   | 'assets' | 'employees' | 'assignments' | 'categories'
-  | 'locations' | 'maintenance' | 'users';
+  | 'locations' | 'maintenance' | 'users' | 'movements';
 
 export type Action = 'create' | 'read' | 'update' | 'delete';
 
@@ -10,10 +10,10 @@ type Permission = '*' | `${Resource}:*` | `${Resource}:${Action}`;
 
 const PERMISSIONS: Record<UserRole, readonly Permission[]> = {
   SUPER_ADMIN: ['*'],
-  ADMIN: ['assets:*', 'employees:*', 'assignments:*', 'categories:*', 'locations:*'],
-  MANAGER: ['assets:read', 'employees:read', 'assignments:create'],
-  TECHNICIAN: ['assets:create', 'assets:update', 'maintenance:*'],
-  VIEWER: ['assets:read', 'employees:read'],
+  ADMIN: ['assets:*', 'employees:*', 'assignments:*', 'categories:*', 'locations:*', 'movements:*'],
+  MANAGER: ['assets:read', 'employees:read', 'assignments:create', 'categories:read', 'locations:read', 'movements:read', 'movements:create'],
+  TECHNICIAN: ['assets:create', 'assets:update', 'maintenance:*', 'categories:read', 'locations:read', 'movements:read', 'movements:create'],
+  VIEWER: ['assets:read', 'employees:read', 'categories:read', 'locations:read', 'movements:read'],
 };
 
 export function hasPermission(role: UserRole, resource: Resource, action: Action): boolean {

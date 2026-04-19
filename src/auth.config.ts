@@ -23,6 +23,9 @@ export const authConfig: NextAuthConfig = {
       return true;
     },
     async signIn({ account, profile }) {
+      if (account?.provider === 'dev') {
+        return process.env.NODE_ENV === 'development';
+      }
       if (account?.provider === 'microsoft-entra-id') {
         const email =
           profile?.email ??
@@ -36,6 +39,5 @@ export const authConfig: NextAuthConfig = {
       return false;
     },
   },
-  session: { strategy: 'database' },
   trustHost: true,
 };

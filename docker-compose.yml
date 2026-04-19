@@ -1,0 +1,23 @@
+services:
+  db:
+    image: mysql:8.0
+    container_name: novahold_db
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: novahold_root
+      MYSQL_DATABASE: novahold_inventory
+      MYSQL_USER: novahold
+      MYSQL_PASSWORD: novahold_pass
+    ports:
+      - "3306:3306"
+    volumes:
+      - novahold_db_data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "novahold", "-pnovahold_pass"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
+volumes:
+  novahold_db_data:
