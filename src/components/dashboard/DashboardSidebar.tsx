@@ -24,6 +24,9 @@ export function DashboardSidebar({ user }: DashboardSidebarProps) {
   const { collapsed, mobileOpen, toggle, closeMobile } = useSidebar();
   const pathname = usePathname();
 
+  // On mobile the drawer is always fully expanded regardless of desktop collapsed state
+  const isCollapsed = collapsed && !mobileOpen;
+
   // Close mobile drawer on navigation
   useEffect(() => {
     closeMobile();
@@ -49,7 +52,7 @@ export function DashboardSidebar({ user }: DashboardSidebarProps) {
           // Desktop: back to normal flow
           'lg:relative lg:inset-auto lg:z-auto',
           'lg:translate-x-0',
-          collapsed ? 'lg:w-14' : 'lg:w-60',
+          isCollapsed ? 'lg:w-14' : 'lg:w-60',
           // Smooth width + slide transitions
           'transition-[width,transform] duration-200 ease-out',
         )}
@@ -58,14 +61,14 @@ export function DashboardSidebar({ user }: DashboardSidebarProps) {
         <div
           className={cn(
             'relative flex items-center py-5 shrink-0',
-            collapsed ? 'justify-center px-3' : 'gap-3 px-4 pr-10',
+            isCollapsed ? 'justify-center px-3' : 'gap-3 px-4 pr-10',
           )}
         >
           <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-sidebar-primary/20 text-sidebar-primary text-[11px] font-bold tracking-tight">
             NVH
           </div>
 
-          {!collapsed && (
+          {!isCollapsed && (
             <div className="min-w-0 flex-1 overflow-hidden">
               <span className="block text-sm font-semibold tracking-tight leading-none">
                 Novahold
@@ -110,7 +113,7 @@ export function DashboardSidebar({ user }: DashboardSidebarProps) {
         <nav className="flex-1 overflow-y-auto overflow-x-hidden px-2" aria-label="Navegación principal">
           {SIDEBAR_NAV_SECTIONS.map((section) => (
             <div key={section.label} className="pb-2">
-              {collapsed ? (
+              {isCollapsed ? (
                 <div className="pt-4 pb-1 flex justify-center">
                   <span className="block h-px w-6 bg-sidebar-foreground/10" />
                 </div>
@@ -127,7 +130,7 @@ export function DashboardSidebar({ user }: DashboardSidebarProps) {
                       label={item.label}
                       icon={item.icon}
                       matchMode={item.matchMode ?? 'startsWith'}
-                      collapsed={collapsed}
+                      collapsed={isCollapsed}
                     />
                   </li>
                 ))}
@@ -140,7 +143,7 @@ export function DashboardSidebar({ user }: DashboardSidebarProps) {
         <div
           className={cn(
             'border-t border-sidebar-border shrink-0',
-            collapsed ? 'p-3 flex justify-center' : 'p-3',
+            isCollapsed ? 'p-3 flex justify-center' : 'p-3',
           )}
         >
           <SidebarUserCard
@@ -148,7 +151,7 @@ export function DashboardSidebar({ user }: DashboardSidebarProps) {
             email={user.email}
             image={user.image}
             role={user.role}
-            collapsed={collapsed}
+            collapsed={isCollapsed}
           />
         </div>
       </aside>
