@@ -125,6 +125,13 @@ novahold-inventory/
 │   │   ├── (dashboard)/       # Rutas protegidas del ERP
 │   │   │   ├── page.tsx               # Dashboard home / KPIs
 │   │   │   ├── assets/                # Módulo activos
+│   │   │   │   └── [assetCode]/       # Detalle individual de activo
+│   │   │   │       ├── page.tsx                        # Server Component — fetch por assetCode
+│   │   │   │       └── presentation/
+│   │   │   │           ├── AssetDetailView.tsx          # Vista completa + depreciación + historial
+│   │   │   │           ├── AssetLabelDownload.tsx        # Descarga etiqueta PDF
+│   │   │   │           └── AssetHistoryDownload.tsx      # Descarga historial PDF
+│   │   │   ├── scanner/               # Lector QR con cámara
 │   │   │   ├── employees/             # Módulo empleados
 │   │   │   ├── assignments/           # Módulo asignaciones
 │   │   │   ├── movimientos/           # Módulo traslados (Kardex)
@@ -142,10 +149,16 @@ novahold-inventory/
 │   │   └── show/              # Show (renderizado condicional)
 │   │
 │   ├── shared/
-│   │   └── presentation/
+│   │   ├── presentation/
+│   │   │   └── components/
+│   │   │       └── form-builder/
+│   │   │           └── CrudFormDialog.tsx   # Diálogo genérico — soporta 16 tipos de campo
+│   │   └── ui/
 │   │       └── components/
-│   │           └── form-builder/
-│   │               └── CrudFormDialog.tsx   # Diálogo genérico de formularios
+│   │           ├── ExcelExportButton.tsx    # Descarga base64 → .xlsx
+│   │           ├── AssetQRCode.tsx          # QR generado client-side (qrcode)
+│   │           ├── AssetLabel.tsx           # Etiqueta imprimible (@react-pdf/renderer)
+│   │           └── AssetHistoryPDF.tsx      # PDF de historial de asignaciones
 │   │
 │   ├── modules/               # Lógica de dominio (DDD)
 │   │   └── {módulo}/
@@ -158,6 +171,7 @@ novahold-inventory/
 │   └── lib/
 │       ├── prisma.ts          # Cliente Prisma singleton
 │       ├── permissions.ts     # Matriz RBAC
+│       ├── depreciation.ts    # calculateDepreciation — lógica NIIF en línea recta
 │       └── utils.ts           # cn(), helpers
 │
 └── openspec/                  # Especificaciones de features (SDD)
@@ -313,6 +327,38 @@ Valor en libros        = Precio base − Depreciación acumulada
 ```
 
 Los snapshots anuales se guardan en `DepreciationSnapshot` para auditoría contable.
+
+---
+
+## Detalle de activo y QR
+
+Cada activo tiene su propia URL: `/assets/NVH-PC-00001`
+
+- Vista completa de todos los campos, asignación activa y tabla de depreciación año a año.
+- **Código QR** generado client-side con `qrcode` — codifica la URL del activo.
+- **Etiqueta PDF** imprimible con QR + nombre + código (`@react-pdf/renderer`).
+- **Historial PDF** de todas las asignaciones del activo, descargable desde la misma vista.
+
+---
+
+## Scanner QR
+
+`/scanner` activa la cámara del dispositivo (via `html5-qrcode`), lee el QR y redirige directamente al activo escaneado. Funciona desde cualquier smartphone con acceso a la app.
+
+---
+
+## Exportación a Excel
+
+Server Actions que generan archivos `.xlsx` con SheetJS y los serializan en base64 para descargar desde el cliente:
+
+| Reporte | Server Action |
+|---------|--------------|
+| Inventario completo | `exportInventoryAction` |
+| Depreciación anual | `exportDepreciationAction` |
+| Activos por vencer vida útil | `exportExpiringAction` |
+| Asignaciones activas | `exportAssignmentsAction` |
+
+El componente `ExcelExportButton` decodifica el base64 y dispara la descarga nativa del browser.
 
 ---
 

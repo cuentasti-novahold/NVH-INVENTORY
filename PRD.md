@@ -298,11 +298,13 @@ Template Excel con columnas:
 
 | Fase | Descripción | Estado |
 |------|-------------|--------|
-| **Fase 1** | Scaffolding: proyecto Next.js, dependencias, Prisma schema, shadcn/ui | Pendiente |
-| **Fase 2** | Auth: NextAuth + Azure AD + RBAC | Pendiente |
-| **Fase 3** | Infraestructura compartida: layout, DataTable, ExcelImport, QRScanner | Pendiente |
-| **Fase 4** | Módulos DDD: locations, categories, employees, assets, financials, assignments, maintenance, audit, scanner | Pendiente |
-| **Fase 5** | Reportes, dashboard KPIs, seed con datos CSV | Pendiente |
+| **Fase 1** | Scaffolding: proyecto Next.js, dependencias, Prisma schema, shadcn/ui | ✅ Completado |
+| **Fase 2** | Auth: NextAuth + Azure AD + RBAC | ✅ Completado |
+| **Fase 3** | Infraestructura compartida: layout, DataTable, ExcelImport, QRScanner, CrudFormDialog | ✅ Completado |
+| **Fase 4** | Módulos DDD: locations, categories, employees, assets, financials, assignments, maintenance, audit, scanner | ✅ Completado |
+| **Fase 5** | Reportes, dashboard KPIs, exportación Excel/PDF, detalle de activo, QR, scanner | ✅ Completado |
+
+**Última actualización:** 2026-04-19 — Sistema en estado operativo v1.0.
 
 ---
 
@@ -312,14 +314,14 @@ Template Excel con columnas:
 # Base de datos
 DATABASE_URL="mysql://user:password@localhost:3306/novahold_inventory"
 
-# NextAuth
-NEXTAUTH_URL="https://inventory.novahold.com"
-NEXTAUTH_SECRET="[generado con openssl rand -base64 32]"
+# NextAuth v5
+AUTH_SECRET="[generado con openssl rand -base64 32]"
+AUTH_URL="https://inventory.novahold.com"
 
 # Azure AD (Microsoft Entra ID)
-AZURE_AD_CLIENT_ID="[desde Azure Portal]"
-AZURE_AD_CLIENT_SECRET="[desde Azure Portal]"
-AZURE_AD_TENANT_ID="[desde Azure Portal]"
+AZURE_AD_CLIENT_ID="[desde Azure Portal → Id. de aplicación]"
+AZURE_AD_CLIENT_SECRET="[desde Azure Portal → Certificados y secretos]"
+AZURE_AD_TENANT_ID="[desde Azure Portal → Id. de directorio]"
 
 # App
 NEXT_PUBLIC_APP_URL="https://inventory.novahold.com"
@@ -330,21 +332,25 @@ NEXT_PUBLIC_COMPANY_PREFIX="NVH"
 
 ## 15. Criterios de Aceptación (v1.0)
 
-- [ ] Login con cuenta `@novahold.com` → accede al sistema sin contraseña adicional
-- [ ] Login con dominio distinto → rechazado con mensaje claro
-- [ ] Crear activo → código `NVH-PC-00001` generado automáticamente
-- [ ] Detalle del activo → QR visible + botón "Imprimir etiqueta" funcional
-- [ ] `/scanner` → cámara activa, escanear QR → redirige al activo correcto
-- [ ] Importar Excel de activos → preview con validación → inserción masiva exitosa
-- [ ] Importar Excel de empleados → misma validación y preview
-- [ ] Asignar activo → `Assignment` creada + `AuditLog` registrado automáticamente
-- [ ] Crear activo con precio en USD → precio en COP calculado correctamente
-- [ ] Detalle financiero → tabla de depreciación año a año correcta (fórmula NIIF)
-- [ ] Generar snapshot anual → guardado y visible en historial financiero
-- [ ] Reporte de depreciación → exportable a Excel con datos correctos
-- [ ] Dashboard → KPIs con datos reales del inventario
-- [ ] SUPER_ADMIN puede cambiar roles de usuarios
-- [ ] VIEWER no puede crear ni editar nada
+- [x] Login con cuenta `@novahold.com` → accede al sistema sin contraseña adicional
+- [x] Login con dominio distinto → rechazado con mensaje claro
+- [x] Crear activo → código `NVH-PC-00001` generado automáticamente
+- [x] Detalle del activo → QR visible + botón "Imprimir etiqueta" funcional
+- [x] `/scanner` → cámara activa, escanear QR → redirige al activo correcto
+- [x] Importar Excel de activos → preview con validación → inserción masiva exitosa
+- [x] Importar Excel de empleados → misma validación y preview
+- [x] Asignar activo → `Assignment` creada + `AuditLog` registrado automáticamente
+- [x] Crear activo con precio en USD → precio en COP calculado correctamente
+- [x] Detalle financiero → tabla de depreciación año a año correcta (fórmula NIIF)
+- [x] Reporte de depreciación → exportable a Excel con datos correctos (`exportDepreciationAction`)
+- [x] Inventario completo → exportable a Excel (`exportInventoryAction`)
+- [x] Asignaciones activas → exportable a Excel (`exportAssignmentsAction`)
+- [x] Activos por vencer vida útil → exportable a Excel (`exportExpiringAction`)
+- [x] Historial de activo específico → exportable a PDF (`AssetHistoryPDF`)
+- [x] Dashboard → KPIs con datos reales del inventario
+- [x] SUPER_ADMIN puede cambiar roles de usuarios
+- [x] VIEWER no puede crear ni editar nada
+- [ ] Generar snapshot anual → guardado y visible en historial financiero *(pendiente — backlog v1.1)*
 
 ---
 
