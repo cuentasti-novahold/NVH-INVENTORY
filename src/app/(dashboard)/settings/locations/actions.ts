@@ -501,16 +501,21 @@ export async function deleteBodegaAction(id: string): Promise<ActionResult<void>
 }
 
 export async function searchBodegasByLocationAction(
-  locationId: string,
+  query: string,
+  locationId?: string,
 ): Promise<ActionResult<{ code: string; value: string }[]>> {
   const session = await auth();
   if (!session?.user) return err('UNAUTHORIZED', 'No autenticado');
 
   const rows = await prisma.bodega.findMany({
-    where: { locationId },
-    select: { id: true, name: true },
+    where: {
+      name: { contains: query },
+      ...(locationId ? { locationId } : {}),
+    },
+    select: { id: true, name: true, location: { select: { name: true } } },
+    take: 20,
     orderBy: { name: 'asc' },
   });
 
-  return ok(rows.map((r) => ({ code: r.id, value: r.name })));
+  return ok(rows.map((r) => ({ code: r.id, value: `${r.name} — ${r.location.name}` })));
 }
