@@ -13,7 +13,6 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { MainDataTable } from '@/components/tables/MainTable';
-import { PageHeader } from '@/components/dashboard/PageHeader';
 import { Show } from '@/components/show/Show.component';
 import { TableSkeleton } from '@/components/tables/TableSkeleton';
 import { updateUserRole } from '../../actions';
@@ -120,21 +119,14 @@ export function UsersTablePage({
     },
   ];
 
-  const usersHeader = {
-    import: [],
-    filters: [],
-  };
-
   return (
-    <div className="flex h-full flex-col gap-6 p-6 overflow-hidden">
-      <div className="flex flex-col gap-1">
-        <h1 className="text-2xl font-semibold tracking-tight">Usuarios</h1>
-        <p className="text-sm text-muted-foreground">
+    <div className="flex h-full flex-col gap-4 p-6 overflow-hidden">
+      <div className="flex flex-col gap-0">
+        <h1 className="text-lg font-semibold tracking-tight">Usuarios</h1>
+        <p className="text-xs text-muted-foreground">
           Gestión de roles del sistema
         </p>
       </div>
-
-      <PageHeader pageHeader={usersHeader} />
 
       <div className="flex-1 min-h-0">
         <Show when={rowCount > 0} fallback={<TableSkeleton columns={5} />}>

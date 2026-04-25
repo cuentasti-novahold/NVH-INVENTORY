@@ -6,7 +6,7 @@ import type { ColumnDef } from '@tanstack/react-table';
 import { Plus, Trash2, ArrowRightLeft } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { MainDataTable } from '@/components/tables/MainTable';
-import { PageHeader } from '@/components/dashboard/PageHeader';
+import { TablePageToolbar } from '@/components/dashboard/TablePageToolbar';
 import { Show } from '@/components/show/Show.component';
 import { Badge } from '@/components/ui/badge';
 import { movimientosColumns } from './columns-movimientos';
@@ -104,35 +104,17 @@ export function MovimientosTablePage({
     updateParams({ beforeCursor: pageInfo.startCursor ?? null, afterCursor: null });
   }
 
-  const headerConfig = {
-    filters: TYPE_FILTERS.map((f) => ({
-      title: f.label,
-      variant: (currentType === f.value ? 'default' : 'outline') as 'default' | 'outline',
-      onClick: () => updateParams({ movementType: f.value === 'all' ? null : f.value, afterCursor: null, beforeCursor: null }),
-    })),
-    import: canWrite
-      ? [
-          {
-            title: 'Registrar traslado',
-            icon: <Plus className="h-4 w-4" />,
-            variant: 'default' as const,
-            onClick: () => setCreateOpen(true),
-          },
-        ]
-      : [],
-  };
-
   return (
-    <div className="flex h-full flex-col gap-6 p-6 overflow-hidden">
+    <div className="flex h-full flex-col gap-4 p-6 overflow-hidden">
       <div className="flex items-center gap-3">
-        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
-          <ArrowRightLeft className="h-5 w-5" />
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+          <ArrowRightLeft className="h-4 w-4" />
         </div>
-        <div className="flex flex-col gap-0.5">
-          <h1 className="text-xl font-semibold tracking-tight">
+        <div className="flex flex-col gap-0">
+          <h1 className="text-lg font-semibold tracking-tight">
             {currentAssetId ? 'Kardex del activo' : 'Traslados'}
           </h1>
-          <p className="text-sm text-muted-foreground">
+          <p className="text-xs text-muted-foreground">
             {currentAssetId
               ? `Historial de movimientos de ${currentAssetLabel ?? currentAssetId}`
               : 'Historial de traslados y movimientos de activos.'}
@@ -149,7 +131,12 @@ export function MovimientosTablePage({
         )}
       </div>
 
-      <PageHeader pageHeader={headerConfig} />
+      <TablePageToolbar config={{
+        toggles: TYPE_FILTERS.map((f) => ({ label: f.label, active: currentType === f.value, onClick: () => updateParams({ movementType: f.value === 'all' ? null : f.value, afterCursor: null, beforeCursor: null }) })),
+        actions: canWrite ? [
+          { label: 'Registrar traslado', icon: <Plus className="h-3.5 w-3.5" />, onClick: () => setCreateOpen(true) },
+        ] : undefined,
+      }} />
 
       <div className="flex-1 min-h-0">
       <Show

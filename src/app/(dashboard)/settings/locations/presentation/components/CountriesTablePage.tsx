@@ -6,7 +6,7 @@ import type { ColumnDef } from '@tanstack/react-table';
 import { Plus, Pencil, Trash2, Globe } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { MainDataTable } from '@/components/tables/MainTable';
-import { PageHeader } from '@/components/dashboard/PageHeader';
+import { TablePageToolbar } from '@/components/dashboard/TablePageToolbar';
 import { Show } from '@/components/show/Show.component';
 import { CrudFormDialog } from '@/shared/presentation/components/form-builder/CrudFormDialog';
 import { countriesColumns } from './columns-countries';
@@ -82,26 +82,13 @@ export function CountriesTablePage({
     },
   ];
 
-  const countriesHeader = {
-    filters: [],
-    import: canWrite
-      ? [
-          {
-            title: 'Nuevo país',
-            icon: <Plus className="h-4 w-4" />,
-            variant: 'default' as const,
-            onClick: () => {
-              setEditing(null);
-              setDialogOpen((prev) => ({ ...prev, createOpen: true }));
-            },
-          },
-        ]
-      : [],
-  };
-
   return (
     <div className="flex flex-col gap-4">
-      <PageHeader pageHeader={countriesHeader} />
+      <TablePageToolbar config={{
+        actions: canWrite ? [
+          { label: 'Nuevo país', icon: <Plus className="h-3.5 w-3.5" />, onClick: () => { setEditing(null); setDialogOpen((prev) => ({ ...prev, createOpen: true })); } },
+        ] : undefined,
+      }} />
       <Show
         when={rowCount > 0}
         fallback={

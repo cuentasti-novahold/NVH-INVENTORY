@@ -89,6 +89,8 @@ export async function listAssignmentsAction(
   if (q.length > 0) {
     filterWhere.OR = [
       { asset: { assetCode: { contains: q } } },
+      { asset: { brand: { contains: q } } },
+      { asset: { model: { contains: q } } },
       { employee: { fullName: { contains: q } } },
     ];
   }
@@ -171,6 +173,7 @@ export interface ListEmployeeAssignmentsParams {
   afterCursor?: string;
   beforeCursor?: string;
   q?: string;
+  status?: 'ACTIVE' | 'RETURNED' | 'TRANSFERRED' | 'all';
 }
 
 export interface ListEmployeeAssignmentsResult {
@@ -189,11 +192,13 @@ export async function listEmployeeAssignmentsAction(
   const limit = Math.min(100, Math.max(5, params.pageSize ?? 20));
   const { afterCursor, beforeCursor } = params;
   const q = params.q?.trim() ?? '';
+  const status = params.status ?? 'all';
 
+  const assignmentFilter = status !== 'all' ? { status } : {};
   const filterWhere: {
     assignments: { some: object };
     OR?: Array<{ fullName: { contains: string } } | { email: { contains: string } }>;
-  } = { assignments: { some: {} } };
+  } = { assignments: { some: assignmentFilter } };
   if (q.length > 0) {
     filterWhere.OR = [{ fullName: { contains: q } }, { email: { contains: q } }];
   }

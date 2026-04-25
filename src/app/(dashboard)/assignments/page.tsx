@@ -14,6 +14,7 @@ export default async function AssignmentsPage({
     beforeCursor?: string;
     pageSize?: string;
     q?: string;
+    status?: string;
   }>;
 }) {
   const session = await auth();
@@ -26,8 +27,11 @@ export default async function AssignmentsPage({
   const afterCursor = sp.afterCursor || undefined;
   const beforeCursor = sp.beforeCursor || undefined;
   const q = sp.q?.trim() ?? '';
+  const currentStatus = (['ACTIVE', 'RETURNED', 'TRANSFERRED'].includes(sp.status ?? '')
+    ? (sp.status as 'ACTIVE' | 'RETURNED' | 'TRANSFERRED')
+    : 'all') as 'ACTIVE' | 'RETURNED' | 'TRANSFERRED' | 'all';
 
-  const result = await listEmployeeAssignmentsAction({ pageSize, afterCursor, beforeCursor, q });
+  const result = await listEmployeeAssignmentsAction({ pageSize, afterCursor, beforeCursor, q, status: currentStatus });
   if (!result.ok) redirect('/');
 
   const canWrite = hasPermission(session.user.role as Role, 'assignments', 'create');
@@ -42,6 +46,7 @@ export default async function AssignmentsPage({
       canAdmin={canAdmin}
       currentPageSize={pageSize}
       currentQ={q}
+      currentStatus={currentStatus}
     />
   );
 }

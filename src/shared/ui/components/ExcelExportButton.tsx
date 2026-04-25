@@ -4,15 +4,17 @@ import { useState } from 'react';
 import { Download } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
 import type { ActionResult } from '@/shared/types/action-result';
 
 interface ExcelExportButtonProps {
   label: string;
   action: () => Promise<ActionResult<{ base64: string; filename: string }>>;
   variant?: 'default' | 'outline' | 'ghost' | 'secondary';
+  className?: string;
 }
 
-export function ExcelExportButton({ label, action, variant = 'outline' }: ExcelExportButtonProps) {
+export function ExcelExportButton({ label, action, variant = 'outline', className }: ExcelExportButtonProps) {
   const [loading, setLoading] = useState(false);
 
   async function handleClick() {
@@ -47,7 +49,7 @@ export function ExcelExportButton({ label, action, variant = 'outline' }: ExcelE
     <Button
       variant={variant}
       size="sm"
-      className="gap-1.5"
+      className={cn('gap-1.5', className)}
       onClick={handleClick}
       disabled={loading}
     >

@@ -6,7 +6,7 @@ import type { ColumnDef } from '@tanstack/react-table';
 import { Plus, Pencil, Trash2, MapPin } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { MainDataTable } from '@/components/tables/MainTable';
-import { PageHeader } from '@/components/dashboard/PageHeader';
+import { TablePageToolbar } from '@/components/dashboard/TablePageToolbar';
 import { Show } from '@/components/show/Show.component';
 import { CrudFormDialog } from '@/shared/presentation/components/form-builder/CrudFormDialog';
 import { locationsColumns } from './columns-locations';
@@ -92,26 +92,13 @@ export function LocationsTablePage({
     },
   ];
 
-  const locationsHeader = {
-    filters: [],
-    import: canWrite
-      ? [
-          {
-            title: 'Nueva sede',
-            icon: <Plus className="h-4 w-4" />,
-            variant: 'default' as const,
-            onClick: () => {
-              setEditing(null);
-              setDialogOpen((prev) => ({ ...prev, createOpen: true }));
-            },
-          },
-        ]
-      : [],
-  };
-
   return (
     <div className="flex flex-col gap-4">
-      <PageHeader pageHeader={locationsHeader} />
+      <TablePageToolbar config={{
+        actions: canWrite ? [
+          { label: 'Nueva sede', icon: <Plus className="h-3.5 w-3.5" />, onClick: () => { setEditing(null); setDialogOpen((prev) => ({ ...prev, createOpen: true })); } },
+        ] : undefined,
+      }} />
       <Show
         when={rowCount > 0}
         fallback={

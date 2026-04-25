@@ -7,7 +7,7 @@ import { Pencil, PowerOff, Trash2, Plus, FileSpreadsheet, Users } from 'lucide-r
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { MainDataTable } from '@/components/tables/MainTable';
-import { PageHeader } from '@/components/dashboard/PageHeader';
+import { TablePageToolbar } from '@/components/dashboard/TablePageToolbar';
 import { Show } from '@/components/show/Show.component';
 import { CrudFormDialog } from '@/shared/presentation/components/form-builder/CrudFormDialog';
 import { ExcelImportDialog } from '@/shared/ui/components/ExcelImportDialog';
@@ -37,6 +37,7 @@ export function EmployeesTablePage({
   canWrite,
   currentPageSize,
   currentIsActive,
+  currentQ,
 }: EmployeesTablePageProps) {
   const [dialogs, setDialogs] = useState({
     createOpen: false,
@@ -128,48 +129,28 @@ export function EmployeesTablePage({
     { label: 'Todos', value: 'all' },
   ];
 
-  const employeesHeader = {
-    filters: isActiveOptions.map((opt) => ({
-      title: opt.label,
-      variant: (currentIsActive === opt.value ? 'default' : 'outline') as 'default' | 'outline',
-      onClick: () => updateParams({ isActive: opt.value, afterCursor: null, beforeCursor: null }),
-    })),
-    import: canWrite
-      ? [
-          {
-            title: 'Importar Excel',
-            icon: <FileSpreadsheet className="h-4 w-4" />,
-            variant: 'outline' as const,
-            onClick: () => setDialogs((s) => ({ ...s, importOpen: true })),
-          },
-          {
-            title: 'Nuevo empleado',
-            icon: <Plus className="h-4 w-4" />,
-            variant: 'default' as const,
-            onClick: () => {
-              setEditing(null);
-              setDialogs((s) => ({ ...s, createOpen: true }));
-            },
-          },
-        ]
-      : [],
-  };
-
   return (
-    <div className="flex h-full flex-col gap-6 p-6 overflow-hidden">
+    <div className="flex h-full flex-col gap-4 p-6 overflow-hidden">
       <div className="flex items-center gap-3">
-        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
-          <Users className="h-5 w-5" />
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+          <Users className="h-4 w-4" />
         </div>
-        <div className="flex flex-col gap-0.5">
-          <h1 className="text-xl font-semibold tracking-tight">Empleados</h1>
-          <p className="text-sm text-muted-foreground">
+        <div className="flex flex-col gap-0">
+          <h1 className="text-lg font-semibold tracking-tight">Empleados</h1>
+          <p className="text-xs text-muted-foreground">
             Gestión de empleados, asignaciones y estado activo/inactivo.
           </p>
         </div>
       </div>
 
-      <PageHeader pageHeader={employeesHeader} />
+      <TablePageToolbar config={{
+        search: { value: currentQ, onChange: (q) => updateParams({ q: q.trim() || null, afterCursor: null, beforeCursor: null }), placeholder: 'Buscar por nombre, email...' },
+        toggles: isActiveOptions.map((opt) => ({ label: opt.label, active: currentIsActive === opt.value, onClick: () => updateParams({ isActive: opt.value, afterCursor: null, beforeCursor: null }) })),
+        actions: canWrite ? [
+          { label: 'Importar Excel', icon: <FileSpreadsheet className="h-3.5 w-3.5" />, variant: 'outline', onClick: () => setDialogs((s) => ({ ...s, importOpen: true })) },
+          { label: 'Nuevo empleado', icon: <Plus className="h-3.5 w-3.5" />, onClick: () => { setEditing(null); setDialogs((s) => ({ ...s, createOpen: true })); } },
+        ] : undefined,
+      }} />
 
       <div className="flex-1 min-h-0">
       <Show

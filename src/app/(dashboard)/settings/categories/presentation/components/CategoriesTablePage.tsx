@@ -3,11 +3,10 @@
 import { useMemo, useState } from 'react';
 import { useRouter, usePathname, useSearchParams } from 'next/navigation';
 import type { ColumnDef } from '@tanstack/react-table';
-import { Plus, Pencil, Trash2, Search } from 'lucide-react';
+import { Plus, Pencil, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { MainDataTable } from '@/components/tables/MainTable';
-import { PageHeader } from '@/components/dashboard/PageHeader';
+import { TablePageToolbar } from '@/components/dashboard/TablePageToolbar';
 import { Show } from '@/components/show/Show.component';
 import { CrudFormDialog } from '@/shared/presentation/components/form-builder/CrudFormDialog';
 import { categoriesColumns } from './columns-categories';
@@ -34,7 +33,6 @@ export function CategoriesTablePage({
 }) {
   const [dialogOpen, setDialogOpen] = useState({ createOpen: false, editOpen: false });
   const [editing, setEditing] = useState<CategoryRow | null>(null);
-  const [searchInput, setSearchInput] = useState(currentQ);
   const { pending, create, update, remove } = useCategories();
 
   const router = useRouter();
@@ -96,49 +94,19 @@ export function CategoriesTablePage({
     },
   ];
 
-  const categoriesHeader = {
-    filters: [],
-    import: canWrite
-      ? [
-          {
-            title: 'Nueva categoría',
-            icon: <Plus className="h-4 w-4" />,
-            variant: 'default' as const,
-            onClick: () => {
-              setEditing(null);
-              setDialogOpen((prev) => ({ ...prev, createOpen: true }));
-            },
-          },
-        ]
-      : [],
-  };
-
   return (
-    <div className="flex h-full flex-col gap-6 p-6 overflow-hidden">
-      <div className="flex flex-col gap-1">
-        <h1 className="text-2xl font-semibold tracking-tight">Categorías</h1>
-        <p className="text-sm text-muted-foreground">Tipos de activos y su configuración</p>
+    <div className="flex h-full flex-col gap-4 p-6 overflow-hidden">
+      <div className="flex flex-col gap-0">
+        <h1 className="text-lg font-semibold tracking-tight">Categorías</h1>
+        <p className="text-xs text-muted-foreground">Tipos de activos y su configuración</p>
       </div>
 
-      <form
-        className="flex items-center gap-2 max-w-sm"
-        onSubmit={(e) => {
-          e.preventDefault();
-          updateParams({ q: searchInput, afterCursor: null, beforeCursor: null });
-        }}
-      >
-        <Input
-          placeholder="Buscar por nombre o prefijo…"
-          value={searchInput}
-          onChange={(e) => setSearchInput(e.target.value)}
-          className="h-9"
-        />
-        <Button type="submit" size="icon" variant="outline" className="h-9 w-9 shrink-0">
-          <Search className="h-4 w-4" />
-        </Button>
-      </form>
-
-      <PageHeader pageHeader={categoriesHeader} />
+      <TablePageToolbar config={{
+        search: { value: currentQ, onChange: (q) => updateParams({ q: q.trim() || null, afterCursor: null, beforeCursor: null }), placeholder: 'Buscar por nombre o prefijo...' },
+        actions: canWrite ? [
+          { label: 'Nueva categoría', icon: <Plus className="h-3.5 w-3.5" />, onClick: () => { setEditing(null); setDialogOpen((prev) => ({ ...prev, createOpen: true })); } },
+        ] : undefined,
+      }} />
 
       <div className="flex-1 min-h-0">
         <Show
