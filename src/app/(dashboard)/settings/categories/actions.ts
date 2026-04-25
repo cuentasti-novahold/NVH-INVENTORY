@@ -22,12 +22,109 @@ async function requireWrite() {
   return { session };
 }
 
-export async function listCategoriesAction(): Promise<ActionResult<CategoryRow[]>> {
+import type { PageInfo } from '@/shared/types/pagination';
+
+export interface ListCategoriesParams {
+  pageSize?: number;
+  afterCursor?: string;
+  beforeCursor?: string;
+  q?: string;
+}
+
+export interface ListCategoriesResult {
+  rows: CategoryRow[];
+  rowCount: number;
+  pageInfo: PageInfo;
+}
+
+export async function listCategoriesAction(
+  params: ListCategoriesParams = {},
+): Promise<ActionResult<ListCategoriesResult>> {
   const session = await auth();
   if (!session?.user || !hasPermission(session.user.role as Parameters<typeof hasPermission>[0], 'categories', 'read'))
     return err('FORBIDDEN', 'Sin permiso');
-  const rows = await prisma.category.findMany({ orderBy: { name: 'asc' }, include: INCLUDE });
-  return ok(rows.map(toCategoryRow));
+
+  const limit = Math.min(100, Math.max(5, params.pageSize ?? 20));
+  const { afterCursor, beforeCursor } = params;
+  const q = params.q?.trim() ?? '';
+
+  const filterWhere: Record<string, unknown> = {};
+  if (q.length > 0) {
+    filterWhere.OR = [
+      { name: { contains: q } },
+      { prefix: { contains: q } },
+    ];
+  }
+
+  let cursorWhere: Record<string, unknown> = {};
+  let orderBy: { createdAt?: 'asc' | 'desc'; id?: 'asc' | 'desc' }[] = [
+    { createdAt: 'desc' },
+    { id: 'desc' },
+  ];
+
+  if (afterCursor) {
+    const pivot = await prisma.category.findUnique({
+      where: { id: afterCursor },
+      select: { createdAt: true },
+    });
+    if (pivot) {
+      cursorWhere = {
+        OR: [
+          { createdAt: { lt: pivot.createdAt } },
+          { createdAt: pivot.createdAt, id: { lt: afterCursor } },
+        ],
+      };
+    }
+  } else if (beforeCursor) {
+    const pivot = await prisma.category.findUnique({
+      where: { id: beforeCursor },
+      select: { createdAt: true },
+    });
+    if (pivot) {
+      cursorWhere = {
+        OR: [
+          { createdAt: { gt: pivot.createdAt } },
+          { createdAt: pivot.createdAt, id: { gt: beforeCursor } },
+        ],
+      };
+      orderBy = [{ createdAt: 'asc' }, { id: 'asc' }];
+    }
+  }
+
+  const hasFilter = Object.keys(filterWhere).length > 0;
+  const hasCursor = Object.keys(cursorWhere).length > 0;
+  const finalWhere = hasFilter && hasCursor
+    ? { AND: [cursorWhere, filterWhere] }
+    : hasCursor
+      ? cursorWhere
+      : filterWhere;
+
+  const [rows, rowCount] = await prisma.$transaction([
+    prisma.category.findMany({
+      where: finalWhere,
+      orderBy,
+      take: limit + 1,
+      include: INCLUDE,
+    }),
+    prisma.category.count({ where: filterWhere }),
+  ]);
+
+  const hasExtraRow = rows.length > limit;
+  const hasNextPage = beforeCursor ? !!(afterCursor || beforeCursor) : hasExtraRow;
+  const hasPreviousPage = beforeCursor ? hasExtraRow : !!afterCursor;
+
+  const trimmed = hasExtraRow ? rows.slice(0, -1) : rows;
+  const data = beforeCursor ? [...trimmed].reverse() : trimmed;
+
+  const startCursor = data.length > 0 ? data[0].id : undefined;
+  const endCursor = data.length > 0 ? data[data.length - 1].id : undefined;
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  return ok({
+    rows: (data as any[]).map(toCategoryRow),
+    rowCount,
+    pageInfo: { hasNextPage, hasPreviousPage, startCursor, endCursor, limit },
+  });
 }
 
 export async function searchCategoriesAction(

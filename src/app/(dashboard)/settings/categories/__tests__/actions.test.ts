@@ -4,9 +4,11 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 vi.mock('@/auth', () => ({ auth: vi.fn() }));
 vi.mock('@/lib/prisma', () => ({
   prisma: {
+    $transaction: vi.fn(),
     category: {
       findUnique: vi.fn(),
       findMany: vi.fn(),
+      count: vi.fn(),
       create: vi.fn(),
       update: vi.fn(),
       delete: vi.fn(),
@@ -27,9 +29,11 @@ import {
 } from '../actions';
 
 const mockAuth = auth as ReturnType<typeof vi.fn>;
+const mockTransaction = prisma.$transaction as ReturnType<typeof vi.fn>;
 const mockCategory = prisma.category as {
   findUnique: ReturnType<typeof vi.fn>;
   findMany: ReturnType<typeof vi.fn>;
+  count: ReturnType<typeof vi.fn>;
   create: ReturnType<typeof vi.fn>;
   update: ReturnType<typeof vi.fn>;
   delete: ReturnType<typeof vi.fn>;
@@ -59,9 +63,16 @@ beforeEach(() => {
 describe('listCategoriesAction', () => {
   it('allows VIEWER to list categories', async () => {
     mockAuth.mockResolvedValue(makeSession('VIEWER'));
-    mockCategory.findMany.mockResolvedValue([sampleCategory]);
+    mockCategory.findUnique.mockResolvedValue(null);
+    mockTransaction.mockResolvedValue([[sampleCategory], 1]);
     const result = await listCategoriesAction();
     expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.data.rows).toHaveLength(1);
+      expect(result.data.rowCount).toBe(1);
+      expect(result.data.pageInfo.hasNextPage).toBe(false);
+      expect(result.data.pageInfo.hasPreviousPage).toBe(false);
+    }
   });
 
   it('returns FORBIDDEN when unauthenticated', async () => {

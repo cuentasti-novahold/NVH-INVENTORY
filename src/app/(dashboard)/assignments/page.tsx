@@ -9,7 +9,13 @@ type Role = Parameters<typeof hasPermission>[0];
 export default async function AssignmentsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ page?: string; pageSize?: string; q?: string }>;
+  searchParams: Promise<{
+    afterCursor?: string;
+    beforeCursor?: string;
+    pageSize?: string;
+    q?: string;
+    status?: string;
+  }>;
 }) {
   const session = await auth();
   if (!session?.user || !hasPermission(session.user.role as Role, 'assignments', 'read')) {
@@ -17,11 +23,15 @@ export default async function AssignmentsPage({
   }
 
   const sp = await searchParams;
-  const page = Math.max(1, Number(sp.page ?? 1) || 1);
   const pageSize = Math.min(100, Math.max(5, Number(sp.pageSize ?? 20) || 20));
+  const afterCursor = sp.afterCursor || undefined;
+  const beforeCursor = sp.beforeCursor || undefined;
   const q = sp.q?.trim() ?? '';
+  const currentStatus = (['ACTIVE', 'RETURNED', 'TRANSFERRED'].includes(sp.status ?? '')
+    ? (sp.status as 'ACTIVE' | 'RETURNED' | 'TRANSFERRED')
+    : 'all') as 'ACTIVE' | 'RETURNED' | 'TRANSFERRED' | 'all';
 
-  const result = await listEmployeeAssignmentsAction({ page, pageSize, q });
+  const result = await listEmployeeAssignmentsAction({ pageSize, afterCursor, beforeCursor, q, status: currentStatus });
   if (!result.ok) redirect('/');
 
   const canWrite = hasPermission(session.user.role as Role, 'assignments', 'create');
@@ -31,12 +41,12 @@ export default async function AssignmentsPage({
     <AssignmentsTablePage
       initialRows={result.data.rows}
       rowCount={result.data.rowCount}
-      pageCount={result.data.pageCount}
+      pageInfo={result.data.pageInfo}
       canWrite={canWrite}
       canAdmin={canAdmin}
-      currentPage={page}
       currentPageSize={pageSize}
       currentQ={q}
+      currentStatus={currentStatus}
     />
   );
 }

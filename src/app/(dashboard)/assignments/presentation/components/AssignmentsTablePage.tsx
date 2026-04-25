@@ -6,33 +6,34 @@ import type { ColumnDef } from '@tanstack/react-table';
 import { Plus, ClipboardList, Eye } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { MainDataTable } from '@/components/tables/MainTable';
-import { PageHeader } from '@/components/dashboard/PageHeader';
+import { TablePageToolbar } from '@/components/dashboard/TablePageToolbar';
 import { Show } from '@/components/show/Show.component';
-import { ExcelExportButton } from '@/shared/ui/components/ExcelExportButton';
 import { AssignmentDetailDialog } from './AssignmentDetailDialog';
 import { employeeAssignmentColumns } from './columns-assignments';
 import { exportAssignmentsAction } from '../../actions';
 import type { EmployeeAssignmentRow } from '../dto/assignment.dto';
+import type { PageInfo } from '@/shared/types/pagination';
 
 interface AssignmentsTablePageProps {
   initialRows: EmployeeAssignmentRow[];
   rowCount: number;
-  pageCount: number;
+  pageInfo: PageInfo;
   canWrite: boolean;
   canAdmin: boolean;
-  currentPage: number;
   currentPageSize: number;
   currentQ: string;
+  currentStatus: 'ACTIVE' | 'RETURNED' | 'TRANSFERRED' | 'all';
 }
 
 export function AssignmentsTablePage({
   initialRows,
   rowCount,
-  pageCount,
+  pageInfo,
   canWrite,
   canAdmin,
-  currentPage,
   currentPageSize,
+  currentQ,
+  currentStatus,
 }: AssignmentsTablePageProps) {
   const [createOpen, setCreateOpen] = useState(false);
   const [detailEmployee, setDetailEmployee] = useState<EmployeeAssignmentRow | null>(null);
@@ -72,38 +73,43 @@ export function AssignmentsTablePage({
     [],
   );
 
-  const pageHeader = {
-    import: canWrite
-      ? [
-          {
-            title: 'Nueva asignación',
-            icon: <Plus className="h-4 w-4" />,
-            variant: 'default' as const,
-            onClick: () => setCreateOpen(true),
-          },
-        ]
-      : [],
-  };
+  function onNextPage() {
+    updateParams({ afterCursor: pageInfo.endCursor ?? null, beforeCursor: null });
+  }
+
+  function onPrevPage() {
+    updateParams({ beforeCursor: pageInfo.startCursor ?? null, afterCursor: null });
+  }
+
+  const statusOptions: { label: string; value: 'ACTIVE' | 'RETURNED' | 'TRANSFERRED' | 'all' }[] = [
+    { label: 'Activas', value: 'ACTIVE' },
+    { label: 'Devueltas', value: 'RETURNED' },
+    { label: 'Transferidas', value: 'TRANSFERRED' },
+    { label: 'Todas', value: 'all' },
+  ];
 
   return (
-    <div className="flex h-full flex-col gap-6 p-6 overflow-hidden">
+    <div className="flex h-full flex-col gap-4 p-6 overflow-hidden">
       <div className="flex items-center gap-3">
-        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
-          <ClipboardList className="h-5 w-5" />
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+          <ClipboardList className="h-4 w-4" />
         </div>
-        <div className="flex flex-col gap-0.5">
-          <h1 className="text-xl font-semibold tracking-tight">Asignaciones</h1>
-          <p className="text-sm text-muted-foreground">
+        <div className="flex flex-col gap-0">
+          <h1 className="text-lg font-semibold tracking-tight">Asignaciones</h1>
+          <p className="text-xs text-muted-foreground">
             Activos asignados por empleado.
           </p>
         </div>
       </div>
 
-      <PageHeader pageHeader={pageHeader} />
-
-      <div className="flex items-center gap-2">
-        <ExcelExportButton label="Asignaciones" action={exportAssignmentsAction} />
-      </div>
+      <TablePageToolbar config={{
+        search: { value: currentQ, onChange: (q) => updateParams({ q: q.trim() || null, afterCursor: null, beforeCursor: null }), placeholder: 'Buscar por código, empleado...' },
+        toggles: statusOptions.map((opt) => ({ label: opt.label, active: currentStatus === opt.value, onClick: () => updateParams({ status: opt.value === 'all' ? null : opt.value, afterCursor: null, beforeCursor: null }) })),
+        exports: [{ label: 'Asignaciones', description: 'Lista completa de asignaciones', action: exportAssignmentsAction }],
+        actions: canWrite ? [
+          { label: 'Nueva asignación', icon: <Plus className="h-3.5 w-3.5" />, onClick: () => setCreateOpen(true) },
+        ] : undefined,
+      }} />
 
       <div className="flex-1 min-h-0">
       <Show
@@ -122,15 +128,9 @@ export function AssignmentsTablePage({
           columns={columns}
           data={initialRows}
           rowCount={rowCount}
-          pageCount={pageCount}
-          paginationState={{ page: currentPage, limit: currentPageSize }}
-          onPaginationChange={(updater) => {
-            const next = updater({
-              pageIndex: currentPage - 1,
-              pageSize: currentPageSize,
-            });
-            updateParams({ page: next.pageIndex + 1, pageSize: next.pageSize });
-          }}
+          pageInfo={pageInfo}
+          onNextPage={onNextPage}
+          onPrevPage={onPrevPage}
         />
       </Show>
       </div>

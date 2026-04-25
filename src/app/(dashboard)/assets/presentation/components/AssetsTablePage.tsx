@@ -8,25 +8,24 @@ import Link from 'next/link';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { MainDataTable } from '@/components/tables/MainTable';
-import { PageHeader } from '@/components/dashboard/PageHeader';
+import { TablePageToolbar } from '@/components/dashboard/TablePageToolbar';
 import { Show } from '@/components/show/Show.component';
 import { ExcelImportDialog } from '@/shared/ui/components/ExcelImportDialog';
-import { ExcelExportButton } from '@/shared/ui/components/ExcelExportButton';
 import { assetColumns } from './columns-assets';
 import { CrudFormDialog } from '@/shared/presentation/components/form-builder/CrudFormDialog';
 import { buildAssetFormConfig, buildAssetDefaultValues, buildAssetDTO } from '../forms/asset-form.config';
 import { useAssets } from '../hooks/use-assets';
 import { importAssetsAction, exportInventoryAction, exportDepreciationAction, exportExpiringAction } from '../../actions';
 import type { AssetRow, AssetImportRow } from '../dto/asset.dto';
+import type { PageInfo } from '@/shared/types/pagination';
 
 type IsActiveParam = 'active' | 'inactive' | 'all';
 
 interface AssetsTablePageProps {
   initialRows: AssetRow[];
   rowCount: number;
-  pageCount: number;
+  pageInfo: PageInfo;
   canWrite: boolean;
-  currentPage: number;
   currentPageSize: number;
   currentIsActive: IsActiveParam;
   currentQ: string;
@@ -35,11 +34,11 @@ interface AssetsTablePageProps {
 export function AssetsTablePage({
   initialRows,
   rowCount,
-  pageCount,
+  pageInfo,
   canWrite,
-  currentPage,
   currentPageSize,
   currentIsActive,
+  currentQ,
 }: AssetsTablePageProps) {
   const [dialogs, setDialogs] = useState({
     createOpen: false,
@@ -123,60 +122,48 @@ export function AssetsTablePage({
     [canWrite, deactivate, remove],
   );
 
+  function onNextPage() {
+    updateParams({ afterCursor: pageInfo.endCursor ?? null, beforeCursor: null });
+  }
+
+  function onPrevPage() {
+    updateParams({ beforeCursor: pageInfo.startCursor ?? null, afterCursor: null });
+  }
+
   const isActiveOptions: { label: string; value: IsActiveParam }[] = [
     { label: 'Activos', value: 'active' },
     { label: 'Inactivos', value: 'inactive' },
     { label: 'Todos', value: 'all' },
   ];
 
-  const pageHeader = {
-    filters: isActiveOptions.map((opt) => ({
-      title: opt.label,
-      variant: (currentIsActive === opt.value ? 'default' : 'outline') as 'default' | 'outline',
-      onClick: () => updateParams({ isActive: opt.value, page: 1 }),
-    })),
-    import: canWrite
-      ? [
-          {
-            title: 'Importar Excel',
-            icon: <FileSpreadsheet className="h-4 w-4" />,
-            variant: 'outline' as const,
-            onClick: () => setDialogs((s) => ({ ...s, importOpen: true })),
-          },
-          {
-            title: 'Nuevo activo',
-            icon: <Plus className="h-4 w-4" />,
-            variant: 'default' as const,
-            onClick: () => {
-              setEditing(null);
-              setDialogs((s) => ({ ...s, createOpen: true }));
-            },
-          },
-        ]
-      : [],
-  };
-
   return (
-    <div className="flex h-full flex-col gap-6 p-6 overflow-hidden">
+    <div className="flex h-full flex-col gap-4 p-6 overflow-hidden">
+      {/* Page title */}
       <div className="flex items-center gap-3">
-        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
-          <Package className="h-5 w-5" />
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+          <Package className="h-4 w-4" />
         </div>
-        <div className="flex flex-col gap-0.5">
-          <h1 className="text-xl font-semibold tracking-tight">Activos</h1>
-          <p className="text-sm text-muted-foreground">
+        <div className="flex flex-col gap-0">
+          <h1 className="text-lg font-semibold tracking-tight">Activos</h1>
+          <p className="text-xs text-muted-foreground">
             Inventario de activos tecnológicos — equipos, periféricos y accesorios.
           </p>
         </div>
       </div>
 
-      <PageHeader pageHeader={pageHeader} />
-
-      <div className="flex items-center gap-2">
-        <ExcelExportButton label="Inventario" action={exportInventoryAction} />
-        <ExcelExportButton label="Depreciación" action={exportDepreciationAction} />
-        <ExcelExportButton label="Por vencer (6m)" action={() => exportExpiringAction(6)} />
-      </div>
+      <TablePageToolbar config={{
+        search: { value: currentQ, onChange: (q) => updateParams({ q: q.trim() || null, afterCursor: null, beforeCursor: null }), placeholder: 'Buscar por código, marca, modelo...' },
+        toggles: isActiveOptions.map((opt) => ({ label: opt.label, active: currentIsActive === opt.value, onClick: () => updateParams({ isActive: opt.value, afterCursor: null, beforeCursor: null }) })),
+        exports: [
+          { label: 'Inventario', description: 'Lista completa de activos', action: exportInventoryAction },
+          { label: 'Depreciación', description: 'Valores y vida útil restante', action: exportDepreciationAction },
+          { label: 'Por vencer (6m)', description: 'Garantías próximas a vencer', action: () => exportExpiringAction(6) },
+        ],
+        actions: canWrite ? [
+          { label: 'Importar Excel', icon: <FileSpreadsheet className="h-3.5 w-3.5" />, variant: 'outline', onClick: () => setDialogs((s) => ({ ...s, importOpen: true })) },
+          { label: 'Nuevo activo', icon: <Plus className="h-3.5 w-3.5" />, onClick: () => { setEditing(null); setDialogs((s) => ({ ...s, createOpen: true })); } },
+        ] : undefined,
+      }} />
 
       <div className="flex-1 min-h-0">
       <Show
@@ -195,12 +182,9 @@ export function AssetsTablePage({
           columns={columns}
           data={initialRows}
           rowCount={rowCount}
-          pageCount={pageCount}
-          paginationState={{ page: currentPage, limit: currentPageSize }}
-          onPaginationChange={(updater) => {
-            const next = updater({ pageIndex: currentPage - 1, pageSize: currentPageSize });
-            updateParams({ page: next.pageIndex + 1, pageSize: next.pageSize });
-          }}
+          pageInfo={pageInfo}
+          onNextPage={onNextPage}
+          onPrevPage={onPrevPage}
         />
       </Show>
       </div>

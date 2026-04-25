@@ -20,6 +20,23 @@ import type { BodegaRow, CreateBodegaDTO, UpdateBodegaDTO } from './presentation
 
 type Role = Parameters<typeof hasPermission>[0];
 
+import type { PageInfo } from '@/shared/types/pagination';
+
+/* ========== Pagination types ========== */
+
+export interface ListLocationParams {
+  pageSize?: number;
+  afterCursor?: string;
+  beforeCursor?: string;
+  q?: string;
+}
+
+export interface ListLocationResult<T> {
+  rows: T[];
+  rowCount: number;
+  pageInfo: PageInfo;
+}
+
 async function requireWrite() {
   const session = await auth();
   if (!session?.user) return { error: err('UNAUTHORIZED', 'No autenticado') };
@@ -55,15 +72,45 @@ function yupToFieldErrors(e: unknown): Record<string, string> {
 
 /* ========== COUNTRIES ========== */
 
-export async function listCountriesAction(): Promise<ActionResult<CountryRow[]>> {
+export async function listCountriesAction(
+  params: ListLocationParams = {},
+): Promise<ActionResult<ListLocationResult<CountryRow>>> {
   const session = await auth();
   if (!session?.user || !hasPermission(session.user.role as Role, 'locations', 'read'))
     return err('FORBIDDEN', 'Sin permiso');
-  const rows = await prisma.country.findMany({
-    orderBy: { name: 'asc' },
-    include: { _count: { select: { cities: true } } },
-  });
-  return ok(rows.map(toCountryRow));
+
+  const limit = Math.min(100, Math.max(5, params.pageSize ?? 20));
+  const { afterCursor, beforeCursor } = params;
+  const q = params.q?.trim() || undefined;
+  const qWhere = q ? { name: { contains: q } } : undefined;
+
+  let cursorWhere: Record<string, unknown> = {};
+  let orderBy: { createdAt?: 'asc' | 'desc'; id?: 'asc' | 'desc' }[] = [{ createdAt: 'desc' }, { id: 'desc' }];
+
+  if (afterCursor) {
+    const pivot = await prisma.country.findUnique({ where: { id: afterCursor }, select: { createdAt: true } });
+    if (pivot) cursorWhere = { OR: [{ createdAt: { lt: pivot.createdAt } }, { createdAt: pivot.createdAt, id: { lt: afterCursor } }] };
+  } else if (beforeCursor) {
+    const pivot = await prisma.country.findUnique({ where: { id: beforeCursor }, select: { createdAt: true } });
+    if (pivot) { cursorWhere = { OR: [{ createdAt: { gt: pivot.createdAt } }, { createdAt: pivot.createdAt, id: { gt: beforeCursor } }] }; orderBy = [{ createdAt: 'asc' }, { id: 'asc' }]; }
+  }
+
+  const hasCursor = Object.keys(cursorWhere).length > 0;
+  const findWhere = hasCursor ? (qWhere ? { AND: [cursorWhere, qWhere] } : cursorWhere) : qWhere;
+  const [rows, rowCount] = await prisma.$transaction([
+    prisma.country.findMany({ where: findWhere as never, orderBy, take: limit + 1, include: { _count: { select: { cities: true } } } }),
+    prisma.country.count({ where: qWhere }),
+  ]);
+
+  const hasExtraRow = rows.length > limit;
+  const hasNextPage = beforeCursor ? !!(afterCursor || beforeCursor) : hasExtraRow;
+  const hasPreviousPage = beforeCursor ? hasExtraRow : !!afterCursor;
+  const trimmed = hasExtraRow ? rows.slice(0, -1) : rows;
+  const data = beforeCursor ? [...trimmed].reverse() : trimmed;
+  const startCursor = data.length > 0 ? data[0].id : undefined;
+  const endCursor = data.length > 0 ? data[data.length - 1].id : undefined;
+
+  return ok({ rows: (data as typeof rows).map(toCountryRow), rowCount, pageInfo: { hasNextPage, hasPreviousPage, startCursor, endCursor, limit } });
 }
 
 export async function searchCountriesAction(
@@ -161,15 +208,45 @@ export async function deleteCountryAction(id: string): Promise<ActionResult<void
 
 /* ========== CITIES ========== */
 
-export async function listCitiesAction(): Promise<ActionResult<CityRow[]>> {
+export async function listCitiesAction(
+  params: ListLocationParams = {},
+): Promise<ActionResult<ListLocationResult<CityRow>>> {
   const session = await auth();
   if (!session?.user || !hasPermission(session.user.role as Role, 'locations', 'read'))
     return err('FORBIDDEN', 'Sin permiso');
-  const rows = await prisma.city.findMany({
-    orderBy: { name: 'asc' },
-    include: { country: { select: { name: true } }, _count: { select: { locations: true } } },
-  });
-  return ok(rows.map(toCityRow));
+
+  const limit = Math.min(100, Math.max(5, params.pageSize ?? 20));
+  const { afterCursor, beforeCursor } = params;
+  const q = params.q?.trim() || undefined;
+  const qWhere = q ? { name: { contains: q } } : undefined;
+
+  let cursorWhere: Record<string, unknown> = {};
+  let orderBy: { createdAt?: 'asc' | 'desc'; id?: 'asc' | 'desc' }[] = [{ createdAt: 'desc' }, { id: 'desc' }];
+
+  if (afterCursor) {
+    const pivot = await prisma.city.findUnique({ where: { id: afterCursor }, select: { createdAt: true } });
+    if (pivot) cursorWhere = { OR: [{ createdAt: { lt: pivot.createdAt } }, { createdAt: pivot.createdAt, id: { lt: afterCursor } }] };
+  } else if (beforeCursor) {
+    const pivot = await prisma.city.findUnique({ where: { id: beforeCursor }, select: { createdAt: true } });
+    if (pivot) { cursorWhere = { OR: [{ createdAt: { gt: pivot.createdAt } }, { createdAt: pivot.createdAt, id: { gt: beforeCursor } }] }; orderBy = [{ createdAt: 'asc' }, { id: 'asc' }]; }
+  }
+
+  const hasCursor = Object.keys(cursorWhere).length > 0;
+  const findWhere = hasCursor ? (qWhere ? { AND: [cursorWhere, qWhere] } : cursorWhere) : qWhere;
+  const [rows, rowCount] = await prisma.$transaction([
+    prisma.city.findMany({ where: findWhere as never, orderBy, take: limit + 1, include: { country: { select: { name: true } }, _count: { select: { locations: true } } } }),
+    prisma.city.count({ where: qWhere }),
+  ]);
+
+  const hasExtraRow = rows.length > limit;
+  const hasNextPage = beforeCursor ? !!(afterCursor || beforeCursor) : hasExtraRow;
+  const hasPreviousPage = beforeCursor ? hasExtraRow : !!afterCursor;
+  const trimmed = hasExtraRow ? rows.slice(0, -1) : rows;
+  const data = beforeCursor ? [...trimmed].reverse() : trimmed;
+  const startCursor = data.length > 0 ? data[0].id : undefined;
+  const endCursor = data.length > 0 ? data[data.length - 1].id : undefined;
+
+  return ok({ rows: (data as typeof rows).map(toCityRow), rowCount, pageInfo: { hasNextPage, hasPreviousPage, startCursor, endCursor, limit } });
 }
 
 export async function searchCitiesAction(
@@ -267,18 +344,45 @@ export async function deleteCityAction(id: string): Promise<ActionResult<void>> 
 
 /* ========== LOCATIONS (SEDES) ========== */
 
-export async function listLocationsAction(): Promise<ActionResult<LocationRow[]>> {
+export async function listLocationsAction(
+  params: ListLocationParams = {},
+): Promise<ActionResult<ListLocationResult<LocationRow>>> {
   const session = await auth();
   if (!session?.user || !hasPermission(session.user.role as Role, 'locations', 'read'))
     return err('FORBIDDEN', 'Sin permiso');
-  const rows = await prisma.location.findMany({
-    orderBy: { name: 'asc' },
-    include: {
-      city: { select: { name: true, country: { select: { name: true } } } },
-      _count: { select: { bodegas: true } },
-    },
-  });
-  return ok(rows.map(toLocationRow));
+
+  const limit = Math.min(100, Math.max(5, params.pageSize ?? 20));
+  const { afterCursor, beforeCursor } = params;
+  const q = params.q?.trim() || undefined;
+  const qWhere = q ? { name: { contains: q } } : undefined;
+
+  let cursorWhere: Record<string, unknown> = {};
+  let orderBy: { createdAt?: 'asc' | 'desc'; id?: 'asc' | 'desc' }[] = [{ createdAt: 'desc' }, { id: 'desc' }];
+
+  if (afterCursor) {
+    const pivot = await prisma.location.findUnique({ where: { id: afterCursor }, select: { createdAt: true } });
+    if (pivot) cursorWhere = { OR: [{ createdAt: { lt: pivot.createdAt } }, { createdAt: pivot.createdAt, id: { lt: afterCursor } }] };
+  } else if (beforeCursor) {
+    const pivot = await prisma.location.findUnique({ where: { id: beforeCursor }, select: { createdAt: true } });
+    if (pivot) { cursorWhere = { OR: [{ createdAt: { gt: pivot.createdAt } }, { createdAt: pivot.createdAt, id: { gt: beforeCursor } }] }; orderBy = [{ createdAt: 'asc' }, { id: 'asc' }]; }
+  }
+
+  const hasCursor = Object.keys(cursorWhere).length > 0;
+  const findWhere = hasCursor ? (qWhere ? { AND: [cursorWhere, qWhere] } : cursorWhere) : qWhere;
+  const [rows, rowCount] = await prisma.$transaction([
+    prisma.location.findMany({ where: findWhere as never, orderBy, take: limit + 1, include: { city: { select: { name: true, country: { select: { name: true } } } }, _count: { select: { bodegas: true } } } }),
+    prisma.location.count({ where: qWhere }),
+  ]);
+
+  const hasExtraRow = rows.length > limit;
+  const hasNextPage = beforeCursor ? !!(afterCursor || beforeCursor) : hasExtraRow;
+  const hasPreviousPage = beforeCursor ? hasExtraRow : !!afterCursor;
+  const trimmed = hasExtraRow ? rows.slice(0, -1) : rows;
+  const data = beforeCursor ? [...trimmed].reverse() : trimmed;
+  const startCursor = data.length > 0 ? data[0].id : undefined;
+  const endCursor = data.length > 0 ? data[data.length - 1].id : undefined;
+
+  return ok({ rows: (data as typeof rows).map(toLocationRow), rowCount, pageInfo: { hasNextPage, hasPreviousPage, startCursor, endCursor, limit } });
 }
 
 export async function searchLocationsAction(
@@ -387,18 +491,45 @@ export async function deleteLocationAction(id: string): Promise<ActionResult<voi
 
 /* ========== BODEGAS ========== */
 
-export async function listBodegasAction(): Promise<ActionResult<BodegaRow[]>> {
+export async function listBodegasAction(
+  params: ListLocationParams = {},
+): Promise<ActionResult<ListLocationResult<BodegaRow>>> {
   const session = await auth();
   if (!session?.user || !hasPermission(session.user.role as Role, 'locations', 'read'))
     return err('FORBIDDEN', 'Sin permiso');
-  const rows = await prisma.bodega.findMany({
-    orderBy: { name: 'asc' },
-    include: {
-      location: { select: { name: true, city: { select: { name: true } } } },
-      _count: { select: { assets: true } },
-    },
-  });
-  return ok(rows.map(toBodegaRow));
+
+  const limit = Math.min(100, Math.max(5, params.pageSize ?? 20));
+  const { afterCursor, beforeCursor } = params;
+  const q = params.q?.trim() || undefined;
+  const qWhere = q ? { name: { contains: q } } : undefined;
+
+  let cursorWhere: Record<string, unknown> = {};
+  let orderBy: { createdAt?: 'asc' | 'desc'; id?: 'asc' | 'desc' }[] = [{ createdAt: 'desc' }, { id: 'desc' }];
+
+  if (afterCursor) {
+    const pivot = await prisma.bodega.findUnique({ where: { id: afterCursor }, select: { createdAt: true } });
+    if (pivot) cursorWhere = { OR: [{ createdAt: { lt: pivot.createdAt } }, { createdAt: pivot.createdAt, id: { lt: afterCursor } }] };
+  } else if (beforeCursor) {
+    const pivot = await prisma.bodega.findUnique({ where: { id: beforeCursor }, select: { createdAt: true } });
+    if (pivot) { cursorWhere = { OR: [{ createdAt: { gt: pivot.createdAt } }, { createdAt: pivot.createdAt, id: { gt: beforeCursor } }] }; orderBy = [{ createdAt: 'asc' }, { id: 'asc' }]; }
+  }
+
+  const hasCursor = Object.keys(cursorWhere).length > 0;
+  const findWhere = hasCursor ? (qWhere ? { AND: [cursorWhere, qWhere] } : cursorWhere) : qWhere;
+  const [rows, rowCount] = await prisma.$transaction([
+    prisma.bodega.findMany({ where: findWhere as never, orderBy, take: limit + 1, include: { location: { select: { name: true, city: { select: { name: true } } } }, _count: { select: { assets: true } } } }),
+    prisma.bodega.count({ where: qWhere }),
+  ]);
+
+  const hasExtraRow = rows.length > limit;
+  const hasNextPage = beforeCursor ? !!(afterCursor || beforeCursor) : hasExtraRow;
+  const hasPreviousPage = beforeCursor ? hasExtraRow : !!afterCursor;
+  const trimmed = hasExtraRow ? rows.slice(0, -1) : rows;
+  const data = beforeCursor ? [...trimmed].reverse() : trimmed;
+  const startCursor = data.length > 0 ? data[0].id : undefined;
+  const endCursor = data.length > 0 ? data[data.length - 1].id : undefined;
+
+  return ok({ rows: (data as typeof rows).map(toBodegaRow), rowCount, pageInfo: { hasNextPage, hasPreviousPage, startCursor, endCursor, limit } });
 }
 
 export async function searchBodegasAction(

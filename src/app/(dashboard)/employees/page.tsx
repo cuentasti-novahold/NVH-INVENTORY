@@ -15,7 +15,8 @@ export default async function EmployeesPage({
   searchParams,
 }: {
   searchParams: Promise<{
-    page?: string;
+    afterCursor?: string;
+    beforeCursor?: string;
     pageSize?: string;
     isActive?: string;
     q?: string;
@@ -30,12 +31,13 @@ export default async function EmployeesPage({
   }
 
   const sp = await searchParams;
-  const page = Math.max(1, Number(sp.page ?? 1) || 1);
   const pageSize = Math.min(100, Math.max(5, Number(sp.pageSize ?? 20) || 20));
+  const afterCursor = sp.afterCursor || undefined;
+  const beforeCursor = sp.beforeCursor || undefined;
   const isActive = parseIsActive(sp.isActive);
   const q = sp.q?.trim() ?? '';
 
-  const result = await listEmployeesAction({ page, pageSize, isActive, q });
+  const result = await listEmployeesAction({ pageSize, afterCursor, beforeCursor, isActive, q });
   if (!result.ok) redirect('/');
 
   const canWrite = hasPermission(session.user.role as Role, 'employees', 'create');
@@ -44,9 +46,8 @@ export default async function EmployeesPage({
     <EmployeesTablePage
       initialRows={result.data.rows}
       rowCount={result.data.rowCount}
-      pageCount={result.data.pageCount}
+      pageInfo={result.data.pageInfo}
       canWrite={canWrite}
-      currentPage={page}
       currentPageSize={pageSize}
       currentIsActive={isActive}
       currentQ={q}

@@ -1,28 +1,52 @@
 'use client';
 
 import { useMemo, useState } from 'react';
+import { useRouter, usePathname, useSearchParams } from 'next/navigation';
 import type { ColumnDef } from '@tanstack/react-table';
 import { Plus, Pencil, Trash2, Building2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { MainDataTable } from '@/components/tables/MainTable';
-import { PageHeader } from '@/components/dashboard/PageHeader';
+import { TablePageToolbar } from '@/components/dashboard/TablePageToolbar';
 import { Show } from '@/components/show/Show.component';
 import { CrudFormDialog } from '@/shared/presentation/components/form-builder/CrudFormDialog';
 import { citiesColumns } from './columns-cities';
 import { buildCityFormConfig } from '../forms/city-form.config';
 import { useCities } from '../hooks/use-cities';
 import type { CityRow } from '../dto/city.dto';
+import type { PageInfo } from '@/shared/types/pagination';
 
 export function CitiesTablePage({
   initialRows,
+  rowCount,
+  pageInfo,
+  paramPrefix,
   canWrite,
+  currentQ,
 }: {
   initialRows: CityRow[];
+  rowCount: number;
+  pageInfo: PageInfo;
+  paramPrefix: string;
   canWrite: boolean;
+  currentQ: string;
 }) {
   const [dialogOpen, setDialogOpen] = useState({ createOpen: false, editOpen: false });
   const [editing, setEditing] = useState<CityRow | null>(null);
   const { pending, create, update, remove } = useCities();
+
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+
+  function updateParams(patch: Record<string, string | number | null>) {
+    const next = new URLSearchParams(searchParams.toString());
+    for (const [k, v] of Object.entries(patch)) {
+      const key = `${paramPrefix}_${k}`;
+      if (v === null || v === '') next.delete(key);
+      else next.set(key, String(v));
+    }
+    router.replace(`${pathname}?${next.toString()}`);
+  }
 
   const formConfig = useMemo(
     () => buildCityFormConfig({ initialCountryLabel: editing?.countryName }),
@@ -65,28 +89,16 @@ export function CitiesTablePage({
     },
   ];
 
-  const citiesHeader = {
-    filters: [],
-    import: canWrite
-      ? [
-          {
-            title: 'Nueva ciudad',
-            icon: <Plus className="h-4 w-4" />,
-            variant: 'default' as const,
-            onClick: () => {
-              setEditing(null);
-              setDialogOpen((prev) => ({ ...prev, createOpen: true }));
-            },
-          },
-        ]
-      : [],
-  };
-
   return (
     <div className="flex flex-col gap-4">
-      <PageHeader pageHeader={citiesHeader} />
+      <TablePageToolbar config={{
+        search: { value: currentQ, onChange: (q) => updateParams({ q: q.trim() || null, afterCursor: null, beforeCursor: null }), placeholder: 'Buscar por nombre...' },
+        actions: canWrite ? [
+          { label: 'Nueva ciudad', icon: <Plus className="h-3.5 w-3.5" />, onClick: () => { setEditing(null); setDialogOpen((prev) => ({ ...prev, createOpen: true })); } },
+        ] : undefined,
+      }} />
       <Show
-        when={initialRows.length > 0}
+        when={rowCount > 0}
         fallback={
           <div className="flex flex-col items-center justify-center py-20 text-muted-foreground">
             <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-muted">
@@ -100,9 +112,10 @@ export function CitiesTablePage({
         <MainDataTable
           columns={columns}
           data={initialRows}
-          pageCount={1}
-          rowCount={initialRows.length}
-          paginationState={{ limit: 20 }}
+          rowCount={rowCount}
+          pageInfo={pageInfo}
+          onNextPage={() => updateParams({ afterCursor: pageInfo.endCursor ?? null, beforeCursor: null })}
+          onPrevPage={() => updateParams({ beforeCursor: pageInfo.startCursor ?? null, afterCursor: null })}
         />
       </Show>
 

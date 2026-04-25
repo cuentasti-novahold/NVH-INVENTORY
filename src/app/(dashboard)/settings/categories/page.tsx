@@ -1,11 +1,14 @@
 import { redirect } from 'next/navigation';
 import { auth } from '@/auth';
-import { prisma } from '@/lib/prisma';
 import { hasPermission } from '@/lib/permissions';
-import { toCategoryRow } from './presentation/mappers/category.mapper';
+import { listCategoriesAction } from './actions';
 import { CategoriesTablePage } from './presentation/components/CategoriesTablePage';
 
-export default async function CategoriesPage() {
+export default async function CategoriesPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ afterCursor?: string; beforeCursor?: string; pageSize?: string; q?: string }>;
+}) {
   const session = await auth();
   if (!session?.user || !hasPermission(session.user.role, 'categories', 'read')) {
     redirect('/');
@@ -13,15 +16,23 @@ export default async function CategoriesPage() {
 
   const canWrite = hasPermission(session.user.role, 'categories', 'create');
 
-  const categories = await prisma.category.findMany({
-    orderBy: { name: 'asc' },
-    include: {
-      parent: { select: { name: true } },
-      _count: { select: { children: true, assets: true } },
-    },
-  });
+  const sp = await searchParams;
+  const pageSize = Math.min(100, Math.max(5, Number(sp.pageSize ?? 20) || 20));
+  const afterCursor = sp.afterCursor || undefined;
+  const beforeCursor = sp.beforeCursor || undefined;
+  const q = sp.q?.trim() ?? '';
+
+  const result = await listCategoriesAction({ pageSize, afterCursor, beforeCursor, q });
+  if (!result.ok) redirect('/');
 
   return (
-    <CategoriesTablePage initialRows={categories.map(toCategoryRow)} canWrite={canWrite} />
+    <CategoriesTablePage
+      initialRows={result.data.rows}
+      rowCount={result.data.rowCount}
+      pageInfo={result.data.pageInfo}
+      currentPageSize={pageSize}
+      currentQ={q}
+      canWrite={canWrite}
+    />
   );
 }

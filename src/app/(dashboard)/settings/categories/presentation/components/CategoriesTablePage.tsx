@@ -1,11 +1,12 @@
 'use client';
 
 import { useMemo, useState } from 'react';
+import { useRouter, usePathname, useSearchParams } from 'next/navigation';
 import type { ColumnDef } from '@tanstack/react-table';
 import { Plus, Pencil, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { MainDataTable } from '@/components/tables/MainTable';
-import { PageHeader } from '@/components/dashboard/PageHeader';
+import { TablePageToolbar } from '@/components/dashboard/TablePageToolbar';
 import { Show } from '@/components/show/Show.component';
 import { CrudFormDialog } from '@/shared/presentation/components/form-builder/CrudFormDialog';
 import { categoriesColumns } from './columns-categories';
@@ -13,17 +14,39 @@ import { buildCategoryFormConfig } from '../forms/category-form.config';
 import { useCategories } from '../hooks/use-categories';
 import { detectPreset } from '../forms/field-config-presets';
 import type { CategoryRow } from '../dto/category.dto';
+import type { PageInfo } from '@/shared/types/pagination';
 
 export function CategoriesTablePage({
   initialRows,
   canWrite,
+  rowCount,
+  pageInfo,
+  currentPageSize,
+  currentQ,
 }: {
   initialRows: CategoryRow[];
   canWrite: boolean;
+  rowCount: number;
+  pageInfo: PageInfo;
+  currentPageSize: number;
+  currentQ: string;
 }) {
   const [dialogOpen, setDialogOpen] = useState({ createOpen: false, editOpen: false });
   const [editing, setEditing] = useState<CategoryRow | null>(null);
   const { pending, create, update, remove } = useCategories();
+
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+
+  function updateParams(patch: Record<string, string | number | null>) {
+    const next = new URLSearchParams(searchParams.toString());
+    for (const [k, v] of Object.entries(patch)) {
+      if (v === null || v === '') next.delete(k);
+      else next.set(k, String(v));
+    }
+    router.replace(`${pathname}?${next.toString()}`);
+  }
 
   const formConfig = useMemo(
     () =>
@@ -71,35 +94,23 @@ export function CategoriesTablePage({
     },
   ];
 
-  const categoriesHeader = {
-    filters: [],
-    import: canWrite
-      ? [
-          {
-            title: 'Nueva categoría',
-            icon: <Plus className="h-4 w-4" />,
-            variant: 'default' as const,
-            onClick: () => {
-              setEditing(null);
-              setDialogOpen((prev) => ({ ...prev, createOpen: true }));
-            },
-          },
-        ]
-      : [],
-  };
-
   return (
-    <div className="flex h-full flex-col gap-6 p-6 overflow-hidden">
-      <div className="flex flex-col gap-1">
-        <h1 className="text-2xl font-semibold tracking-tight">Categorías</h1>
-        <p className="text-sm text-muted-foreground">Tipos de activos y su configuración</p>
+    <div className="flex h-full flex-col gap-4 p-6 overflow-hidden">
+      <div className="flex flex-col gap-0">
+        <h1 className="text-lg font-semibold tracking-tight">Categorías</h1>
+        <p className="text-xs text-muted-foreground">Tipos de activos y su configuración</p>
       </div>
 
-      <PageHeader pageHeader={categoriesHeader} />
+      <TablePageToolbar config={{
+        search: { value: currentQ, onChange: (q) => updateParams({ q: q.trim() || null, afterCursor: null, beforeCursor: null }), placeholder: 'Buscar por nombre o prefijo...' },
+        actions: canWrite ? [
+          { label: 'Nueva categoría', icon: <Plus className="h-3.5 w-3.5" />, onClick: () => { setEditing(null); setDialogOpen((prev) => ({ ...prev, createOpen: true })); } },
+        ] : undefined,
+      }} />
 
       <div className="flex-1 min-h-0">
         <Show
-          when={initialRows.length > 0}
+          when={rowCount > 0}
           fallback={
             <div className="flex flex-col items-center justify-center py-16 text-sm text-muted-foreground">
               <p>No hay categorías registradas.</p>
@@ -109,9 +120,10 @@ export function CategoriesTablePage({
           <MainDataTable
             columns={columns}
             data={initialRows}
-            pageCount={1}
-            rowCount={initialRows.length}
-            paginationState={{ limit: 20 }}
+            rowCount={rowCount}
+            pageInfo={pageInfo}
+            onNextPage={() => updateParams({ afterCursor: pageInfo.endCursor ?? null, beforeCursor: null })}
+            onPrevPage={() => updateParams({ beforeCursor: pageInfo.startCursor ?? null, afterCursor: null })}
           />
         </Show>
       </div>

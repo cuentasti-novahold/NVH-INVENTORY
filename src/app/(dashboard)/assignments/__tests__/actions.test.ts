@@ -15,6 +15,7 @@ vi.mock('@/lib/prisma', () => ({
     },
     employee: {
       findMany: vi.fn(),
+      findUnique: vi.fn(),
       count: vi.fn(),
     },
     $transaction: vi.fn(),
@@ -140,20 +141,23 @@ describe('listAssignmentsAction', () => {
     expect((r as { ok: false; code: string }).code).toBe('FORBIDDEN');
   });
 
-  it('returns paginated rows for ADMIN', async () => {
+  it('returns cursor-paginated rows for ADMIN', async () => {
     mockAuth.mockResolvedValue(adminSession);
+    mockAssignment.findUnique.mockResolvedValue(null);
     mockTransaction.mockResolvedValue([[fakeDbAssignment], 1]);
-    const r = await listAssignmentsAction({ page: 1, pageSize: 20 });
+    const r = await listAssignmentsAction({ pageSize: 20 });
     expect(r.ok).toBe(true);
     if (!r.ok) return;
     expect(r.data.rows).toHaveLength(1);
     expect(r.data.rows[0].assetCode).toBe('NVH-PC-00001');
     expect(r.data.rowCount).toBe(1);
-    expect(r.data.pageCount).toBe(1);
+    expect(r.data.pageInfo.hasNextPage).toBe(false);
+    expect(r.data.pageInfo.hasPreviousPage).toBe(false);
   });
 
   it('filters by ACTIVE status by default', async () => {
     mockAuth.mockResolvedValue(adminSession);
+    mockAssignment.findUnique.mockResolvedValue(null);
     mockTransaction.mockResolvedValue([[], 0]);
     await listAssignmentsAction();
     expect(mockTransaction).toHaveBeenCalled();
@@ -161,6 +165,7 @@ describe('listAssignmentsAction', () => {
 
   it('returns all rows when status is "all"', async () => {
     mockAuth.mockResolvedValue(adminSession);
+    mockAssignment.findUnique.mockResolvedValue(null);
     mockTransaction.mockResolvedValue([[fakeDbAssignment], 1]);
     const r = await listAssignmentsAction({ status: 'all' });
     expect(r.ok).toBe(true);
@@ -567,26 +572,28 @@ describe('listEmployeeAssignmentsAction', () => {
 
   it('returns employee rows for ADMIN', async () => {
     mockAuth.mockResolvedValue(adminSession);
+    mockEmployee.findUnique.mockResolvedValue(null);
     mockTransaction.mockResolvedValue([[fakeEmployeeWithAssignments], 1]);
-    const r = await listEmployeeAssignmentsAction({ page: 1, pageSize: 20 });
+    const r = await listEmployeeAssignmentsAction({ pageSize: 20 });
     expect(r.ok).toBe(true);
     if (!r.ok) return;
     expect(r.data.rows).toHaveLength(1);
     expect(r.data.rows[0].employeeName).toBe('Juan Pérez');
     expect(r.data.rows[0].activeCount).toBe(1);
     expect(r.data.rowCount).toBe(1);
-    expect(r.data.pageCount).toBe(1);
+    expect(r.data.pageInfo.hasNextPage).toBe(false);
   });
 
   it('returns empty rows when no employees have assignments', async () => {
     mockAuth.mockResolvedValue(adminSession);
+    mockEmployee.findUnique.mockResolvedValue(null);
     mockTransaction.mockResolvedValue([[], 0]);
     const r = await listEmployeeAssignmentsAction();
     expect(r.ok).toBe(true);
     if (!r.ok) return;
     expect(r.data.rows).toHaveLength(0);
     expect(r.data.rowCount).toBe(0);
-    expect(r.data.pageCount).toBe(1);
+    expect(r.data.pageInfo.hasNextPage).toBe(false);
   });
 });
 

@@ -11,6 +11,10 @@ interface PageHeaderAction {
 }
 
 interface PageHeaderConfig {
+  /**
+   * @deprecated Use FilterBar instead for filter controls.
+   * This prop remains functional but new modules should not use it.
+   */
   filters?: PageHeaderAction[];
   import?: PageHeaderAction[];
 }

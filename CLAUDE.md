@@ -14,6 +14,7 @@
 | Next.js patterns, RSC, async APIs | `.claude/skills/next-best-practices/SKILL.md` |
 | List/table page, columns, XxxTablePage | `skills/nextjs-16/main-page/SKILL.md` |
 | Forms, CrudFormDialog, autocomplete | `skills/nextjs-16/form-builder/SKILL.md` |
+| Pagination, filters, URL-driven tables | `skills/nextjs-16/pagination-filters/SKILL.md` |
 | Tailwind classes, cn(), dynamic styles | `skills/tailwind-4/SKILL.md` |
 
 **Rule**: Read the skill file BEFORE writing any code in that context. Multiple skills can apply simultaneously.
