@@ -28,6 +28,7 @@ export interface ListLocationParams {
   pageSize?: number;
   afterCursor?: string;
   beforeCursor?: string;
+  q?: string;
 }
 
 export interface ListLocationResult<T> {
@@ -80,6 +81,8 @@ export async function listCountriesAction(
 
   const limit = Math.min(100, Math.max(5, params.pageSize ?? 20));
   const { afterCursor, beforeCursor } = params;
+  const q = params.q?.trim() || undefined;
+  const qWhere = q ? { name: { contains: q } } : undefined;
 
   let cursorWhere: Record<string, unknown> = {};
   let orderBy: { createdAt?: 'asc' | 'desc'; id?: 'asc' | 'desc' }[] = [{ createdAt: 'desc' }, { id: 'desc' }];
@@ -93,9 +96,10 @@ export async function listCountriesAction(
   }
 
   const hasCursor = Object.keys(cursorWhere).length > 0;
+  const findWhere = hasCursor ? (qWhere ? { AND: [cursorWhere, qWhere] } : cursorWhere) : qWhere;
   const [rows, rowCount] = await prisma.$transaction([
-    prisma.country.findMany({ where: hasCursor ? cursorWhere : undefined, orderBy, take: limit + 1, include: { _count: { select: { cities: true } } } }),
-    prisma.country.count(),
+    prisma.country.findMany({ where: findWhere as never, orderBy, take: limit + 1, include: { _count: { select: { cities: true } } } }),
+    prisma.country.count({ where: qWhere }),
   ]);
 
   const hasExtraRow = rows.length > limit;
@@ -213,6 +217,8 @@ export async function listCitiesAction(
 
   const limit = Math.min(100, Math.max(5, params.pageSize ?? 20));
   const { afterCursor, beforeCursor } = params;
+  const q = params.q?.trim() || undefined;
+  const qWhere = q ? { name: { contains: q } } : undefined;
 
   let cursorWhere: Record<string, unknown> = {};
   let orderBy: { createdAt?: 'asc' | 'desc'; id?: 'asc' | 'desc' }[] = [{ createdAt: 'desc' }, { id: 'desc' }];
@@ -226,9 +232,10 @@ export async function listCitiesAction(
   }
 
   const hasCursor = Object.keys(cursorWhere).length > 0;
+  const findWhere = hasCursor ? (qWhere ? { AND: [cursorWhere, qWhere] } : cursorWhere) : qWhere;
   const [rows, rowCount] = await prisma.$transaction([
-    prisma.city.findMany({ where: hasCursor ? cursorWhere : undefined, orderBy, take: limit + 1, include: { country: { select: { name: true } }, _count: { select: { locations: true } } } }),
-    prisma.city.count(),
+    prisma.city.findMany({ where: findWhere as never, orderBy, take: limit + 1, include: { country: { select: { name: true } }, _count: { select: { locations: true } } } }),
+    prisma.city.count({ where: qWhere }),
   ]);
 
   const hasExtraRow = rows.length > limit;
@@ -346,6 +353,8 @@ export async function listLocationsAction(
 
   const limit = Math.min(100, Math.max(5, params.pageSize ?? 20));
   const { afterCursor, beforeCursor } = params;
+  const q = params.q?.trim() || undefined;
+  const qWhere = q ? { name: { contains: q } } : undefined;
 
   let cursorWhere: Record<string, unknown> = {};
   let orderBy: { createdAt?: 'asc' | 'desc'; id?: 'asc' | 'desc' }[] = [{ createdAt: 'desc' }, { id: 'desc' }];
@@ -359,9 +368,10 @@ export async function listLocationsAction(
   }
 
   const hasCursor = Object.keys(cursorWhere).length > 0;
+  const findWhere = hasCursor ? (qWhere ? { AND: [cursorWhere, qWhere] } : cursorWhere) : qWhere;
   const [rows, rowCount] = await prisma.$transaction([
-    prisma.location.findMany({ where: hasCursor ? cursorWhere : undefined, orderBy, take: limit + 1, include: { city: { select: { name: true, country: { select: { name: true } } } }, _count: { select: { bodegas: true } } } }),
-    prisma.location.count(),
+    prisma.location.findMany({ where: findWhere as never, orderBy, take: limit + 1, include: { city: { select: { name: true, country: { select: { name: true } } } }, _count: { select: { bodegas: true } } } }),
+    prisma.location.count({ where: qWhere }),
   ]);
 
   const hasExtraRow = rows.length > limit;
@@ -490,6 +500,8 @@ export async function listBodegasAction(
 
   const limit = Math.min(100, Math.max(5, params.pageSize ?? 20));
   const { afterCursor, beforeCursor } = params;
+  const q = params.q?.trim() || undefined;
+  const qWhere = q ? { name: { contains: q } } : undefined;
 
   let cursorWhere: Record<string, unknown> = {};
   let orderBy: { createdAt?: 'asc' | 'desc'; id?: 'asc' | 'desc' }[] = [{ createdAt: 'desc' }, { id: 'desc' }];
@@ -503,9 +515,10 @@ export async function listBodegasAction(
   }
 
   const hasCursor = Object.keys(cursorWhere).length > 0;
+  const findWhere = hasCursor ? (qWhere ? { AND: [cursorWhere, qWhere] } : cursorWhere) : qWhere;
   const [rows, rowCount] = await prisma.$transaction([
-    prisma.bodega.findMany({ where: hasCursor ? cursorWhere : undefined, orderBy, take: limit + 1, include: { location: { select: { name: true, city: { select: { name: true } } } }, _count: { select: { assets: true } } } }),
-    prisma.bodega.count(),
+    prisma.bodega.findMany({ where: findWhere as never, orderBy, take: limit + 1, include: { location: { select: { name: true, city: { select: { name: true } } } }, _count: { select: { assets: true } } } }),
+    prisma.bodega.count({ where: qWhere }),
   ]);
 
   const hasExtraRow = rows.length > limit;

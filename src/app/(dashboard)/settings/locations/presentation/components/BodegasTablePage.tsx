@@ -21,12 +21,14 @@ export function BodegasTablePage({
   pageInfo,
   paramPrefix,
   canWrite,
+  currentQ,
 }: {
   initialRows: BodegaRow[];
   rowCount: number;
   pageInfo: PageInfo;
   paramPrefix: string;
   canWrite: boolean;
+  currentQ: string;
 }) {
   const [dialogOpen, setDialogOpen] = useState({ createOpen: false, editOpen: false });
   const [editing, setEditing] = useState<BodegaRow | null>(null);
@@ -95,6 +97,7 @@ export function BodegasTablePage({
   return (
     <div className="flex flex-col gap-4">
       <TablePageToolbar config={{
+        search: { value: currentQ, onChange: (q) => updateParams({ q: q.trim() || null, afterCursor: null, beforeCursor: null }), placeholder: 'Buscar por nombre...' },
         actions: canWrite ? [
           { label: 'Nueva bodega', icon: <Plus className="h-3.5 w-3.5" />, onClick: () => { setEditing(null); setDialogOpen((prev) => ({ ...prev, createOpen: true })); } },
         ] : undefined,

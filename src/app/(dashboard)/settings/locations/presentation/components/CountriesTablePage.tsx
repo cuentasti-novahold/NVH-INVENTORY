@@ -21,12 +21,14 @@ export function CountriesTablePage({
   pageInfo,
   paramPrefix,
   canWrite,
+  currentQ,
 }: {
   initialRows: CountryRow[];
   rowCount: number;
   pageInfo: PageInfo;
   paramPrefix: string;
   canWrite: boolean;
+  currentQ: string;
 }) {
   const [dialogOpen, setDialogOpen] = useState({ createOpen: false, editOpen: false });
   const [editing, setEditing] = useState<CountryRow | null>(null);
@@ -85,6 +87,7 @@ export function CountriesTablePage({
   return (
     <div className="flex flex-col gap-4">
       <TablePageToolbar config={{
+        search: { value: currentQ, onChange: (q) => updateParams({ q: q.trim() || null, afterCursor: null, beforeCursor: null }), placeholder: 'Buscar por nombre o código...' },
         actions: canWrite ? [
           { label: 'Nuevo país', icon: <Plus className="h-3.5 w-3.5" />, onClick: () => { setEditing(null); setDialogOpen((prev) => ({ ...prev, createOpen: true })); } },
         ] : undefined,

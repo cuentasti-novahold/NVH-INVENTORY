@@ -18,18 +18,10 @@ export default async function LocationsPage({
 }: {
   searchParams: Promise<{
     tab?: string;
-    paises_afterCursor?: string;
-    paises_beforeCursor?: string;
-    paises_pageSize?: string;
-    ciudades_afterCursor?: string;
-    ciudades_beforeCursor?: string;
-    ciudades_pageSize?: string;
-    sedes_afterCursor?: string;
-    sedes_beforeCursor?: string;
-    sedes_pageSize?: string;
-    bodegas_afterCursor?: string;
-    bodegas_beforeCursor?: string;
-    bodegas_pageSize?: string;
+    paises_afterCursor?: string; paises_beforeCursor?: string; paises_pageSize?: string; paises_q?: string;
+    ciudades_afterCursor?: string; ciudades_beforeCursor?: string; ciudades_pageSize?: string; ciudades_q?: string;
+    sedes_afterCursor?: string; sedes_beforeCursor?: string; sedes_pageSize?: string; sedes_q?: string;
+    bodegas_afterCursor?: string; bodegas_beforeCursor?: string; bodegas_pageSize?: string; bodegas_q?: string;
   }>;
 }) {
   const session = await auth();
@@ -47,10 +39,10 @@ export default async function LocationsPage({
   const canWrite = hasPermission(session.user.role, 'locations', 'create');
 
   const [countries, cities, locs, bodegasRes] = await Promise.all([
-    listCountriesAction({ pageSize: parsePageSize(sp.paises_pageSize), afterCursor: sp.paises_afterCursor || undefined, beforeCursor: sp.paises_beforeCursor || undefined }),
-    listCitiesAction({ pageSize: parsePageSize(sp.ciudades_pageSize), afterCursor: sp.ciudades_afterCursor || undefined, beforeCursor: sp.ciudades_beforeCursor || undefined }),
-    listLocationsAction({ pageSize: parsePageSize(sp.sedes_pageSize), afterCursor: sp.sedes_afterCursor || undefined, beforeCursor: sp.sedes_beforeCursor || undefined }),
-    listBodegasAction({ pageSize: parsePageSize(sp.bodegas_pageSize), afterCursor: sp.bodegas_afterCursor || undefined, beforeCursor: sp.bodegas_beforeCursor || undefined }),
+    listCountriesAction({ pageSize: parsePageSize(sp.paises_pageSize), afterCursor: sp.paises_afterCursor || undefined, beforeCursor: sp.paises_beforeCursor || undefined, q: sp.paises_q || undefined }),
+    listCitiesAction({ pageSize: parsePageSize(sp.ciudades_pageSize), afterCursor: sp.ciudades_afterCursor || undefined, beforeCursor: sp.ciudades_beforeCursor || undefined, q: sp.ciudades_q || undefined }),
+    listLocationsAction({ pageSize: parsePageSize(sp.sedes_pageSize), afterCursor: sp.sedes_afterCursor || undefined, beforeCursor: sp.sedes_beforeCursor || undefined, q: sp.sedes_q || undefined }),
+    listBodegasAction({ pageSize: parsePageSize(sp.bodegas_pageSize), afterCursor: sp.bodegas_afterCursor || undefined, beforeCursor: sp.bodegas_beforeCursor || undefined, q: sp.bodegas_q || undefined }),
   ]);
 
   if (!countries.ok || !cities.ok || !locs.ok || !bodegasRes.ok) redirect('/');
@@ -63,6 +55,10 @@ export default async function LocationsPage({
       cities={cities.data}
       locations={locs.data}
       bodegas={bodegasRes.data}
+      countriesQ={sp.paises_q ?? ''}
+      citiesQ={sp.ciudades_q ?? ''}
+      locationsQ={sp.sedes_q ?? ''}
+      bodegasQ={sp.bodegas_q ?? ''}
     />
   );
 }
