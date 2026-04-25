@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useTransition } from 'react';
+import { useRouter, usePathname, useSearchParams } from 'next/navigation';
 import { toast } from 'sonner';
 import type { ColumnDef } from '@tanstack/react-table';
 import { Badge } from '@/components/ui/badge';
@@ -16,15 +17,15 @@ import { PageHeader } from '@/components/dashboard/PageHeader';
 import { Show } from '@/components/show/Show.component';
 import { TableSkeleton } from '@/components/tables/TableSkeleton';
 import { updateUserRole } from '../../actions';
+import type { UserRow } from '../../actions';
+import type { PageInfo } from '@/shared/types/pagination';
 
 type UserRole = 'SUPER_ADMIN' | 'ADMIN' | 'MANAGER' | 'TECHNICIAN' | 'VIEWER';
 
-interface UserRow {
-  id: string;
-  name: string | null;
-  email: string;
-  role: UserRole;
-  createdAt: string;
+interface UsersTablePageProps {
+  users: UserRow[];
+  rowCount: number;
+  pageInfo: PageInfo;
 }
 
 const ROLES: UserRole[] = ['SUPER_ADMIN', 'ADMIN', 'MANAGER', 'TECHNICIAN', 'VIEWER'];
@@ -37,9 +38,26 @@ const ROLE_VARIANT: Record<UserRole, 'default' | 'secondary' | 'outline'> = {
   VIEWER: 'outline',
 };
 
-export function UsersTablePage({ users }: { users: UserRow[] }) {
+export function UsersTablePage({
+  users,
+  rowCount,
+  pageInfo,
+}: UsersTablePageProps) {
   const [pending, startTransition] = useTransition();
   const [pendingId, setPendingId] = useState<string | null>(null);
+
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+
+  function updateParams(patch: Record<string, string | number | null>) {
+    const next = new URLSearchParams(searchParams.toString());
+    for (const [k, v] of Object.entries(patch)) {
+      if (v === null || v === '') next.delete(k);
+      else next.set(k, String(v));
+    }
+    router.replace(`${pathname}?${next.toString()}`);
+  }
 
   function onChangeRole(userId: string, newRole: UserRole) {
     setPendingId(userId);
@@ -119,15 +137,16 @@ export function UsersTablePage({ users }: { users: UserRow[] }) {
       <PageHeader pageHeader={usersHeader} />
 
       <div className="flex-1 min-h-0">
-      <Show when={users.length > 0} fallback={<TableSkeleton columns={5} />}>
-        <MainDataTable
-          columns={columns}
-          data={users}
-          pageCount={1}
-          rowCount={users.length}
-          paginationState={{ limit: 20 }}
-        />
-      </Show>
+        <Show when={rowCount > 0} fallback={<TableSkeleton columns={5} />}>
+          <MainDataTable
+            columns={columns}
+            data={users}
+            rowCount={rowCount}
+            pageInfo={pageInfo}
+            onNextPage={() => updateParams({ afterCursor: pageInfo.endCursor ?? null, beforeCursor: null })}
+            onPrevPage={() => updateParams({ beforeCursor: pageInfo.startCursor ?? null, afterCursor: null })}
+          />
+        </Show>
       </div>
     </div>
   );

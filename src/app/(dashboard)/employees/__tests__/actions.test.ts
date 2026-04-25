@@ -95,8 +95,9 @@ describe('listEmployeesAction', () => {
     if (!result.ok) expect(result.code).toBe('FORBIDDEN');
   });
 
-  it('returns ok with rows for VIEWER', async () => {
+  it('returns ok with cursor-paginated rows for VIEWER', async () => {
     mockAuth.mockResolvedValue(makeSession('VIEWER'));
+    mockEmployee.findUnique.mockResolvedValue(null);
     mockTransaction.mockResolvedValue([[sampleEmployee], 1]);
     const result = await listEmployeesAction();
     expect(result.ok).toBe(true);
@@ -104,11 +105,27 @@ describe('listEmployeesAction', () => {
       expect(result.data.rows).toHaveLength(1);
       expect(result.data.rows[0].email).toBe('carlos@novahold.com');
       expect(result.data.rows[0].createdAt).toBe('2024-01-01T00:00:00.000Z');
+      expect(result.data.pageInfo.hasNextPage).toBe(false);
+      expect(result.data.pageInfo.hasPreviousPage).toBe(false);
+    }
+  });
+
+  it('detects hasNextPage when extra row returned', async () => {
+    mockAuth.mockResolvedValue(makeSession('VIEWER'));
+    mockEmployee.findUnique.mockResolvedValue(null);
+    const rows = Array.from({ length: 21 }, (_, i) => ({ ...sampleEmployee, id: `emp-${i}` }));
+    mockTransaction.mockResolvedValue([rows, 25]);
+    const result = await listEmployeesAction({ pageSize: 20 });
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.data.rows).toHaveLength(20);
+      expect(result.data.pageInfo.hasNextPage).toBe(true);
     }
   });
 
   it('filters by isActive=inactive when param is "inactive"', async () => {
     mockAuth.mockResolvedValue(makeSession('ADMIN'));
+    mockEmployee.findUnique.mockResolvedValue(null);
     mockEmployee.findMany.mockResolvedValue([]);
     mockEmployee.count.mockResolvedValue(0);
     mockTransaction.mockImplementation(async (ops: unknown[]) => Promise.all(ops));
@@ -119,6 +136,7 @@ describe('listEmployeesAction', () => {
 
   it('omits isActive filter when param is "all"', async () => {
     mockAuth.mockResolvedValue(makeSession('ADMIN'));
+    mockEmployee.findUnique.mockResolvedValue(null);
     mockEmployee.findMany.mockResolvedValue([]);
     mockEmployee.count.mockResolvedValue(0);
     mockTransaction.mockImplementation(async (ops: unknown[]) => Promise.all(ops));

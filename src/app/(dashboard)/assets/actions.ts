@@ -79,9 +79,12 @@ function formatAssetCode(prefix: string, sequence: number): string {
 
 // ─── List ──────────────────────────────────────────────────────────────────
 
+import type { PageInfo } from '@/shared/types/pagination';
+
 export interface ListAssetsParams {
-  page?: number;
   pageSize?: number;
+  afterCursor?: string;
+  beforeCursor?: string;
   isActive?: 'active' | 'inactive' | 'all';
   q?: string;
   categoryId?: string;
@@ -92,7 +95,7 @@ export interface ListAssetsParams {
 export interface ListAssetsResult {
   rows: AssetRow[];
   rowCount: number;
-  pageCount: number;
+  pageInfo: PageInfo;
 }
 
 export async function listAssetsAction(
@@ -102,19 +105,19 @@ export async function listAssetsAction(
   if (!session?.user || !hasPermission(session.user.role as Role, 'assets', 'read'))
     return err('FORBIDDEN', 'Sin permiso');
 
-  const page = Math.max(1, params.page ?? 1);
-  const pageSize = Math.min(100, Math.max(5, params.pageSize ?? 20));
+  const limit = Math.min(100, Math.max(5, params.pageSize ?? 20));
+  const { afterCursor, beforeCursor } = params;
   const isActive = params.isActive ?? 'active';
   const q = params.q?.trim() ?? '';
 
-  const where: Record<string, unknown> = {};
-  if (isActive === 'active') where.isActive = true;
-  else if (isActive === 'inactive') where.isActive = false;
-  if (params.categoryId) where.categoryId = params.categoryId;
-  if (params.generalStatus) where.generalStatus = params.generalStatus;
-  if (params.locationId) where.locationId = params.locationId;
+  const filterWhere: Record<string, unknown> = {};
+  if (isActive === 'active') filterWhere.isActive = true;
+  else if (isActive === 'inactive') filterWhere.isActive = false;
+  if (params.categoryId) filterWhere.categoryId = params.categoryId;
+  if (params.generalStatus) filterWhere.generalStatus = params.generalStatus;
+  if (params.locationId) filterWhere.locationId = params.locationId;
   if (q.length > 0) {
-    where.OR = [
+    filterWhere.OR = [
       { assetCode: { contains: q } },
       { brand: { contains: q } },
       { model: { contains: q } },
@@ -123,20 +126,75 @@ export async function listAssetsAction(
     ];
   }
 
+  let cursorWhere: Record<string, unknown> = {};
+  let orderBy: { createdAt?: 'asc' | 'desc'; id?: 'asc' | 'desc' }[] = [
+    { createdAt: 'desc' },
+    { id: 'desc' },
+  ];
+
+  if (afterCursor) {
+    const pivot = await prisma.asset.findUnique({
+      where: { id: afterCursor },
+      select: { createdAt: true },
+    });
+    if (pivot) {
+      cursorWhere = {
+        OR: [
+          { createdAt: { lt: pivot.createdAt } },
+          { createdAt: pivot.createdAt, id: { lt: afterCursor } },
+        ],
+      };
+    }
+  } else if (beforeCursor) {
+    const pivot = await prisma.asset.findUnique({
+      where: { id: beforeCursor },
+      select: { createdAt: true },
+    });
+    if (pivot) {
+      cursorWhere = {
+        OR: [
+          { createdAt: { gt: pivot.createdAt } },
+          { createdAt: pivot.createdAt, id: { gt: beforeCursor } },
+        ],
+      };
+      orderBy = [{ createdAt: 'asc' }, { id: 'asc' }];
+    }
+  }
+
+  const hasFilter = Object.keys(filterWhere).length > 0;
+  const hasCursor = Object.keys(cursorWhere).length > 0;
+  const finalWhere = hasFilter && hasCursor
+    ? { AND: [cursorWhere, filterWhere] }
+    : hasCursor
+      ? cursorWhere
+      : filterWhere;
+
   const [rows, rowCount] = await prisma.$transaction([
     prisma.asset.findMany({
-      where,
-      orderBy: { createdAt: 'desc' },
-      skip: (page - 1) * pageSize,
-      take: pageSize,
+      where: finalWhere,
+      orderBy,
+      take: limit + 1,
       include: assetInclude,
     }),
-    prisma.asset.count({ where }),
+    prisma.asset.count({ where: filterWhere }),
   ]);
 
-  const pageCount = Math.max(1, Math.ceil(rowCount / pageSize));
+  const hasExtraRow = rows.length > limit;
+  const hasNextPage = beforeCursor ? !!(afterCursor || beforeCursor) : hasExtraRow;
+  const hasPreviousPage = beforeCursor ? hasExtraRow : !!afterCursor;
+
+  const trimmed = hasExtraRow ? rows.slice(0, -1) : rows;
+  const data = beforeCursor ? [...trimmed].reverse() : trimmed;
+
+  const startCursor = data.length > 0 ? data[0].id : undefined;
+  const endCursor = data.length > 0 ? data[data.length - 1].id : undefined;
+
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return ok({ rows: (rows as any[]).map(toAssetRow), rowCount, pageCount });
+  return ok({
+    rows: (data as any[]).map(toAssetRow),
+    rowCount,
+    pageInfo: { hasNextPage, hasPreviousPage, startCursor, endCursor, limit },
+  });
 }
 
 // ─── Search (autocomplete for assignments) ──────────────────────────────────

@@ -28,9 +28,12 @@ function yupToFieldErrors(e: unknown): Record<string, string> {
 
 // ─── List ──────────────────────────────────────────────────────────────────
 
+import type { PageInfo } from '@/shared/types/pagination';
+
 export interface ListMovementsParams {
-  page?: number;
   pageSize?: number;
+  afterCursor?: string;
+  beforeCursor?: string;
   movementType?: string;
   assetId?: string;
   locationId?: string;
@@ -41,7 +44,7 @@ export interface ListMovementsParams {
 export interface ListMovementsResult {
   rows: MovementRow[];
   rowCount: number;
-  pageCount: number;
+  pageInfo: PageInfo;
 }
 
 export async function listMovementsAction(
@@ -51,34 +54,89 @@ export async function listMovementsAction(
   if (!session?.user || !hasPermission(session.user.role as Role, 'movements', 'read'))
     return err('FORBIDDEN', 'Sin permiso');
 
-  const page = Math.max(1, params.page ?? 1);
-  const pageSize = Math.min(100, Math.max(5, params.pageSize ?? 20));
+  const limit = Math.min(100, Math.max(5, params.pageSize ?? 20));
+  const { afterCursor, beforeCursor } = params;
 
-  const where: Record<string, unknown> = {};
-  if (params.movementType && params.movementType !== 'all') where.movementType = params.movementType;
-  if (params.assetId) where.assetId = params.assetId;
-  if (params.locationId) where.toLocationId = params.locationId;
+  const filterWhere: Record<string, unknown> = {};
+  if (params.movementType && params.movementType !== 'all') filterWhere.movementType = params.movementType;
+  if (params.assetId) filterWhere.assetId = params.assetId;
+  if (params.locationId) filterWhere.toLocationId = params.locationId;
   if (params.dateFrom || params.dateTo) {
-    where.movedAt = {
+    filterWhere.movedAt = {
       ...(params.dateFrom ? { gte: new Date(params.dateFrom) } : {}),
       ...(params.dateTo ? { lte: new Date(params.dateTo) } : {}),
     };
   }
 
+  let cursorWhere: Record<string, unknown> = {};
+  let orderBy: { createdAt?: 'asc' | 'desc'; id?: 'asc' | 'desc' }[] = [
+    { createdAt: 'desc' },
+    { id: 'desc' },
+  ];
+
+  if (afterCursor) {
+    const pivot = await prisma.assetMovement.findUnique({
+      where: { id: afterCursor },
+      select: { createdAt: true },
+    });
+    if (pivot) {
+      cursorWhere = {
+        OR: [
+          { createdAt: { lt: pivot.createdAt } },
+          { createdAt: pivot.createdAt, id: { lt: afterCursor } },
+        ],
+      };
+    }
+  } else if (beforeCursor) {
+    const pivot = await prisma.assetMovement.findUnique({
+      where: { id: beforeCursor },
+      select: { createdAt: true },
+    });
+    if (pivot) {
+      cursorWhere = {
+        OR: [
+          { createdAt: { gt: pivot.createdAt } },
+          { createdAt: pivot.createdAt, id: { gt: beforeCursor } },
+        ],
+      };
+      orderBy = [{ createdAt: 'asc' }, { id: 'asc' }];
+    }
+  }
+
+  const hasFilter = Object.keys(filterWhere).length > 0;
+  const hasCursor = Object.keys(cursorWhere).length > 0;
+  const finalWhere = hasFilter && hasCursor
+    ? { AND: [cursorWhere, filterWhere] }
+    : hasCursor
+      ? cursorWhere
+      : filterWhere;
+
   const [rows, rowCount] = await prisma.$transaction([
     prisma.assetMovement.findMany({
-      where,
-      orderBy: { movedAt: 'desc' },
-      skip: (page - 1) * pageSize,
-      take: pageSize,
+      where: finalWhere,
+      orderBy,
+      take: limit + 1,
       include: movementInclude,
     }),
-    prisma.assetMovement.count({ where }),
+    prisma.assetMovement.count({ where: filterWhere }),
   ]);
 
-  const pageCount = Math.max(1, Math.ceil(rowCount / pageSize));
+  const hasExtraRow = rows.length > limit;
+  const hasNextPage = beforeCursor ? !!(afterCursor || beforeCursor) : hasExtraRow;
+  const hasPreviousPage = beforeCursor ? hasExtraRow : !!afterCursor;
+
+  const trimmed = hasExtraRow ? rows.slice(0, -1) : rows;
+  const data = beforeCursor ? [...trimmed].reverse() : trimmed;
+
+  const startCursor = data.length > 0 ? data[0].id : undefined;
+  const endCursor = data.length > 0 ? data[data.length - 1].id : undefined;
+
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return ok({ rows: (rows as any[]).map(toMovementRow), rowCount, pageCount });
+  return ok({
+    rows: (data as any[]).map(toMovementRow),
+    rowCount,
+    pageInfo: { hasNextPage, hasPreviousPage, startCursor, endCursor, limit },
+  });
 }
 
 // ─── Create ────────────────────────────────────────────────────────────────

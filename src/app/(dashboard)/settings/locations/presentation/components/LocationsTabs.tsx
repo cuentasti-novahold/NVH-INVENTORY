@@ -12,6 +12,13 @@ import type { CountryRow } from '../dto/country.dto';
 import type { CityRow } from '../dto/city.dto';
 import type { LocationRow } from '../dto/location.dto';
 import type { BodegaRow } from '../dto/bodega.dto';
+import type { PageInfo } from '@/shared/types/pagination';
+
+interface TabBundle<TRow> {
+  rows: TRow[];
+  rowCount: number;
+  pageInfo: PageInfo;
+}
 
 const TAB_CONFIG = [
   { value: 'paises', label: 'Países', icon: Globe },
@@ -29,10 +36,10 @@ export function LocationsTabs({
   canWrite,
 }: {
   initialTab: string;
-  countries: CountryRow[];
-  cities: CityRow[];
-  locations: LocationRow[];
-  bodegas: BodegaRow[];
+  countries: TabBundle<CountryRow>;
+  cities: TabBundle<CityRow>;
+  locations: TabBundle<LocationRow>;
+  bodegas: TabBundle<BodegaRow>;
   canWrite: boolean;
 }) {
   const router = useRouter();
@@ -75,16 +82,40 @@ export function LocationsTabs({
         </div>
 
         <TabsContent value="paises" className="mt-4">
-          <CountriesTablePage initialRows={countries} canWrite={canWrite} />
+          <CountriesTablePage
+            initialRows={countries.rows}
+            rowCount={countries.rowCount}
+            pageInfo={countries.pageInfo}
+            paramPrefix="paises"
+            canWrite={canWrite}
+          />
         </TabsContent>
         <TabsContent value="ciudades" className="mt-4">
-          <CitiesTablePage initialRows={cities} canWrite={canWrite} />
+          <CitiesTablePage
+            initialRows={cities.rows}
+            rowCount={cities.rowCount}
+            pageInfo={cities.pageInfo}
+            paramPrefix="ciudades"
+            canWrite={canWrite}
+          />
         </TabsContent>
         <TabsContent value="sedes" className="mt-4">
-          <LocationsTablePage initialRows={locations} canWrite={canWrite} />
+          <LocationsTablePage
+            initialRows={locations.rows}
+            rowCount={locations.rowCount}
+            pageInfo={locations.pageInfo}
+            paramPrefix="sedes"
+            canWrite={canWrite}
+          />
         </TabsContent>
         <TabsContent value="bodegas" className="mt-4">
-          <BodegasTablePage initialRows={bodegas} canWrite={canWrite} />
+          <BodegasTablePage
+            initialRows={bodegas.rows}
+            rowCount={bodegas.rowCount}
+            pageInfo={bodegas.pageInfo}
+            paramPrefix="bodegas"
+            canWrite={canWrite}
+          />
         </TabsContent>
       </Tabs>
     </div>

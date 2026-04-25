@@ -134,21 +134,24 @@ describe('listMovementsAction', () => {
     if (!result.ok) expect(result.code).toBe('FORBIDDEN');
   });
 
-  it('returns paginated rows for ADMIN', async () => {
+  it('returns cursor-paginated rows for ADMIN', async () => {
     mockAuth.mockResolvedValue(adminSession);
+    mockMovement.findUnique.mockResolvedValue(null);
     const { listMovementsAction } = await import('../actions');
-    const result = await listMovementsAction({ page: 1, pageSize: 20 });
+    const result = await listMovementsAction({ pageSize: 20 });
     expect(result.ok).toBe(true);
     if (result.ok) {
       expect(result.data.rows).toHaveLength(1);
       expect(result.data.rows[0].assetCode).toBe('NVH-PC-00001');
       expect(result.data.rowCount).toBe(1);
-      expect(result.data.pageCount).toBe(1);
+      expect(result.data.pageInfo.hasNextPage).toBe(false);
+      expect(result.data.pageInfo.hasPreviousPage).toBe(false);
     }
   });
 
   it('filters by movementType when not "all"', async () => {
     mockAuth.mockResolvedValue(adminSession);
+    mockMovement.findUnique.mockResolvedValue(null);
     mockMovement.findMany.mockResolvedValue([]);
     mockMovement.count.mockResolvedValue(0);
     const { listMovementsAction } = await import('../actions');
@@ -162,6 +165,7 @@ describe('listMovementsAction', () => {
 
   it('filters by assetId for Kardex mode', async () => {
     mockAuth.mockResolvedValue(adminSession);
+    mockMovement.findUnique.mockResolvedValue(null);
     mockMovement.findMany.mockResolvedValue([fakeDbMovement]);
     mockMovement.count.mockResolvedValue(1);
     const { listMovementsAction } = await import('../actions');
@@ -173,13 +177,14 @@ describe('listMovementsAction', () => {
     );
   });
 
-  it('returns pageCount of 1 minimum when rowCount is 0', async () => {
+  it('returns hasNextPage=false when rowCount is 0', async () => {
     mockAuth.mockResolvedValue(adminSession);
+    mockMovement.findUnique.mockResolvedValue(null);
     mockMovement.findMany.mockResolvedValue([]);
     mockMovement.count.mockResolvedValue(0);
     const { listMovementsAction } = await import('../actions');
     const result = await listMovementsAction({});
-    if (result.ok) expect(result.data.pageCount).toBe(1);
+    if (result.ok) expect(result.data.pageInfo.hasNextPage).toBe(false);
   });
 });
 

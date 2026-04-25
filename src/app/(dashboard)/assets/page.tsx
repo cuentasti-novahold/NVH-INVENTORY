@@ -15,7 +15,8 @@ export default async function AssetsPage({
   searchParams,
 }: {
   searchParams: Promise<{
-    page?: string;
+    afterCursor?: string;
+    beforeCursor?: string;
     pageSize?: string;
     isActive?: string;
     q?: string;
@@ -30,14 +31,16 @@ export default async function AssetsPage({
   }
 
   const sp = await searchParams;
-  const page = Math.max(1, Number(sp.page ?? 1) || 1);
   const pageSize = Math.min(100, Math.max(5, Number(sp.pageSize ?? 20) || 20));
+  const afterCursor = sp.afterCursor || undefined;
+  const beforeCursor = sp.beforeCursor || undefined;
   const isActive = parseIsActive(sp.isActive);
   const q = sp.q?.trim() ?? '';
 
   const result = await listAssetsAction({
-    page,
     pageSize,
+    afterCursor,
+    beforeCursor,
     isActive,
     q,
     categoryId: sp.categoryId,
@@ -52,9 +55,8 @@ export default async function AssetsPage({
     <AssetsTablePage
       initialRows={result.data.rows}
       rowCount={result.data.rowCount}
-      pageCount={result.data.pageCount}
+      pageInfo={result.data.pageInfo}
       canWrite={canWrite}
-      currentPage={page}
       currentPageSize={pageSize}
       currentIsActive={isActive}
       currentQ={q}

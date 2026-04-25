@@ -14,16 +14,16 @@ import { CrudFormDialog } from '@/shared/presentation/components/form-builder/Cr
 import { buildMovimientoFormConfig } from '../forms/movimiento-form.config';
 import { useMovimientos } from '../hooks/use-movimientos';
 import type { MovementRow, MovementType } from '../dto/movement.dto';
+import type { PageInfo } from '@/shared/types/pagination';
 
 type TypeFilter = MovementType | 'all';
 
 interface Props {
   initialRows: MovementRow[];
   rowCount: number;
-  pageCount: number;
+  pageInfo: PageInfo;
   canWrite: boolean;
   canDelete: boolean;
-  currentPage: number;
   currentPageSize: number;
   currentType: TypeFilter;
   currentAssetId?: string;
@@ -42,10 +42,9 @@ const TYPE_FILTERS: { label: string; value: TypeFilter }[] = [
 export function MovimientosTablePage({
   initialRows,
   rowCount,
-  pageCount,
+  pageInfo,
   canWrite,
   canDelete,
-  currentPage,
   currentPageSize,
   currentType,
   currentAssetId,
@@ -97,11 +96,19 @@ export function MovimientosTablePage({
     [canDelete, remove],
   );
 
+  function onNextPage() {
+    updateParams({ afterCursor: pageInfo.endCursor ?? null, beforeCursor: null });
+  }
+
+  function onPrevPage() {
+    updateParams({ beforeCursor: pageInfo.startCursor ?? null, afterCursor: null });
+  }
+
   const headerConfig = {
     filters: TYPE_FILTERS.map((f) => ({
       title: f.label,
       variant: (currentType === f.value ? 'default' : 'outline') as 'default' | 'outline',
-      onClick: () => updateParams({ movementType: f.value === 'all' ? null : f.value, page: 1 }),
+      onClick: () => updateParams({ movementType: f.value === 'all' ? null : f.value, afterCursor: null, beforeCursor: null }),
     })),
     import: canWrite
       ? [
@@ -135,7 +142,7 @@ export function MovimientosTablePage({
           <Badge
             className="ml-2 cursor-pointer"
             variant="secondary"
-            onClick={() => updateParams({ assetId: null, page: 1 })}
+            onClick={() => updateParams({ assetId: null, afterCursor: null, beforeCursor: null })}
           >
             Ver todos ×
           </Badge>
@@ -161,12 +168,9 @@ export function MovimientosTablePage({
           columns={columns}
           data={initialRows}
           rowCount={rowCount}
-          pageCount={pageCount}
-          paginationState={{ page: currentPage, limit: currentPageSize }}
-          onPaginationChange={(updater) => {
-            const next = updater({ pageIndex: currentPage - 1, pageSize: currentPageSize });
-            updateParams({ page: next.pageIndex + 1, pageSize: next.pageSize });
-          }}
+          pageInfo={pageInfo}
+          onNextPage={onNextPage}
+          onPrevPage={onPrevPage}
         />
       </Show>
       </div>

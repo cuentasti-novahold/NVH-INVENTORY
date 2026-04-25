@@ -13,7 +13,8 @@ export default async function MovimientosPage({
   searchParams,
 }: {
   searchParams: Promise<{
-    page?: string;
+    afterCursor?: string;
+    beforeCursor?: string;
     pageSize?: string;
     movementType?: string;
     assetId?: string;
@@ -25,16 +26,18 @@ export default async function MovimientosPage({
   }
 
   const sp = await searchParams;
-  const page = Math.max(1, Number(sp.page ?? 1) || 1);
   const pageSize = Math.min(100, Math.max(5, Number(sp.pageSize ?? 20) || 20));
+  const afterCursor = sp.afterCursor || undefined;
+  const beforeCursor = sp.beforeCursor || undefined;
   const movementType = (
     VALID_TYPES.includes(sp.movementType ?? '') ? sp.movementType : 'all'
   ) as TypeFilter;
   const assetId = sp.assetId?.trim() ?? '';
 
   const result = await listMovementsAction({
-    page,
     pageSize,
+    afterCursor,
+    beforeCursor,
     movementType: movementType === 'all' ? undefined : movementType,
     assetId: assetId || undefined,
   });
@@ -51,10 +54,9 @@ export default async function MovimientosPage({
     <MovimientosTablePage
       initialRows={result.data.rows}
       rowCount={result.data.rowCount}
-      pageCount={result.data.pageCount}
+      pageInfo={result.data.pageInfo}
       canWrite={canWrite}
       canDelete={canDelete}
-      currentPage={page}
       currentPageSize={pageSize}
       currentType={movementType}
       currentAssetId={assetId || undefined}

@@ -56,9 +56,12 @@ function yupToFieldErrors(e: unknown): Record<string, string> {
 
 // ─── List ──────────────────────────────────────────────────────────────────
 
+import type { PageInfo } from '@/shared/types/pagination';
+
 export interface ListAssignmentsParams {
-  page?: number;
   pageSize?: number;
+  afterCursor?: string;
+  beforeCursor?: string;
   status?: 'ACTIVE' | 'RETURNED' | 'TRANSFERRED' | 'all';
   q?: string;
 }
@@ -66,7 +69,7 @@ export interface ListAssignmentsParams {
 export interface ListAssignmentsResult {
   rows: AssignmentRow[];
   rowCount: number;
-  pageCount: number;
+  pageInfo: PageInfo;
 }
 
 export async function listAssignmentsAction(
@@ -76,48 +79,104 @@ export async function listAssignmentsAction(
   if (!session?.user || !hasPermission(session.user.role as Role, 'assignments', 'read'))
     return err('FORBIDDEN', 'Sin permiso');
 
-  const page = Math.max(1, params.page ?? 1);
-  const pageSize = Math.min(100, Math.max(5, params.pageSize ?? 20));
+  const limit = Math.min(100, Math.max(5, params.pageSize ?? 20));
+  const { afterCursor, beforeCursor } = params;
   const status = params.status ?? 'ACTIVE';
   const q = params.q?.trim() ?? '';
 
-  const where: Record<string, unknown> = {};
-  if (status !== 'all') where.status = status;
+  const filterWhere: Record<string, unknown> = {};
+  if (status !== 'all') filterWhere.status = status;
   if (q.length > 0) {
-    where.OR = [
+    filterWhere.OR = [
       { asset: { assetCode: { contains: q } } },
       { employee: { fullName: { contains: q } } },
     ];
   }
 
+  let cursorWhere: Record<string, unknown> = {};
+  let orderBy: { createdAt?: 'asc' | 'desc'; id?: 'asc' | 'desc' }[] = [
+    { createdAt: 'desc' },
+    { id: 'desc' },
+  ];
+
+  if (afterCursor) {
+    const pivot = await prisma.assignment.findUnique({
+      where: { id: afterCursor },
+      select: { createdAt: true },
+    });
+    if (pivot) {
+      cursorWhere = {
+        OR: [
+          { createdAt: { lt: pivot.createdAt } },
+          { createdAt: pivot.createdAt, id: { lt: afterCursor } },
+        ],
+      };
+    }
+  } else if (beforeCursor) {
+    const pivot = await prisma.assignment.findUnique({
+      where: { id: beforeCursor },
+      select: { createdAt: true },
+    });
+    if (pivot) {
+      cursorWhere = {
+        OR: [
+          { createdAt: { gt: pivot.createdAt } },
+          { createdAt: pivot.createdAt, id: { gt: beforeCursor } },
+        ],
+      };
+      orderBy = [{ createdAt: 'asc' }, { id: 'asc' }];
+    }
+  }
+
+  const hasFilter = Object.keys(filterWhere).length > 0;
+  const hasCursor = Object.keys(cursorWhere).length > 0;
+  const finalWhere = hasFilter && hasCursor
+    ? { AND: [cursorWhere, filterWhere] }
+    : hasCursor
+      ? cursorWhere
+      : filterWhere;
+
   const [rows, rowCount] = await prisma.$transaction([
     prisma.assignment.findMany({
-      where,
-      orderBy: { assignedAt: 'desc' },
-      skip: (page - 1) * pageSize,
-      take: pageSize,
+      where: finalWhere,
+      orderBy,
+      take: limit + 1,
       include: assignmentInclude,
     }),
-    prisma.assignment.count({ where }),
+    prisma.assignment.count({ where: filterWhere }),
   ]);
 
-  const pageCount = Math.max(1, Math.ceil(rowCount / pageSize));
+  const hasExtraRow = rows.length > limit;
+  const hasNextPage = beforeCursor ? !!(afterCursor || beforeCursor) : hasExtraRow;
+  const hasPreviousPage = beforeCursor ? hasExtraRow : !!afterCursor;
+
+  const trimmed = hasExtraRow ? rows.slice(0, -1) : rows;
+  const data = beforeCursor ? [...trimmed].reverse() : trimmed;
+
+  const startCursor = data.length > 0 ? data[0].id : undefined;
+  const endCursor = data.length > 0 ? data[data.length - 1].id : undefined;
+
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return ok({ rows: (rows as any[]).map(toAssignmentRow), rowCount, pageCount });
+  return ok({
+    rows: (data as any[]).map(toAssignmentRow),
+    rowCount,
+    pageInfo: { hasNextPage, hasPreviousPage, startCursor, endCursor, limit },
+  });
 }
 
 // ─── List by Employee ──────────────────────────────────────────────────────
 
 export interface ListEmployeeAssignmentsParams {
-  page?: number;
   pageSize?: number;
+  afterCursor?: string;
+  beforeCursor?: string;
   q?: string;
 }
 
 export interface ListEmployeeAssignmentsResult {
   rows: EmployeeAssignmentRow[];
   rowCount: number;
-  pageCount: number;
+  pageInfo: PageInfo;
 }
 
 export async function listEmployeeAssignmentsAction(
@@ -127,17 +186,57 @@ export async function listEmployeeAssignmentsAction(
   if (!session?.user || !hasPermission(session.user.role as Role, 'assignments', 'read'))
     return err('FORBIDDEN', 'Sin permiso');
 
-  const page = Math.max(1, params.page ?? 1);
-  const pageSize = Math.min(100, Math.max(5, params.pageSize ?? 20));
+  const limit = Math.min(100, Math.max(5, params.pageSize ?? 20));
+  const { afterCursor, beforeCursor } = params;
   const q = params.q?.trim() ?? '';
 
-  const where: {
+  const filterWhere: {
     assignments: { some: object };
     OR?: Array<{ fullName: { contains: string } } | { email: { contains: string } }>;
   } = { assignments: { some: {} } };
   if (q.length > 0) {
-    where.OR = [{ fullName: { contains: q } }, { email: { contains: q } }];
+    filterWhere.OR = [{ fullName: { contains: q } }, { email: { contains: q } }];
   }
+
+  let cursorWhere: Record<string, unknown> = {};
+  let orderBy: { createdAt?: 'asc' | 'desc'; id?: 'asc' | 'desc' }[] = [
+    { createdAt: 'desc' },
+    { id: 'desc' },
+  ];
+
+  if (afterCursor) {
+    const pivot = await prisma.employee.findUnique({
+      where: { id: afterCursor },
+      select: { createdAt: true },
+    });
+    if (pivot) {
+      cursorWhere = {
+        OR: [
+          { createdAt: { lt: pivot.createdAt } },
+          { createdAt: pivot.createdAt, id: { lt: afterCursor } },
+        ],
+      };
+    }
+  } else if (beforeCursor) {
+    const pivot = await prisma.employee.findUnique({
+      where: { id: beforeCursor },
+      select: { createdAt: true },
+    });
+    if (pivot) {
+      cursorWhere = {
+        OR: [
+          { createdAt: { gt: pivot.createdAt } },
+          { createdAt: pivot.createdAt, id: { gt: beforeCursor } },
+        ],
+      };
+      orderBy = [{ createdAt: 'asc' }, { id: 'asc' }];
+    }
+  }
+
+  const hasCursor = Object.keys(cursorWhere).length > 0;
+  const finalWhere = hasCursor
+    ? { AND: [cursorWhere, filterWhere] }
+    : filterWhere;
 
   const employeeSelect = {
     id: true,
@@ -152,18 +251,30 @@ export async function listEmployeeAssignmentsAction(
 
   const [employees, rowCount] = await prisma.$transaction([
     prisma.employee.findMany({
-      where,
+      where: finalWhere,
       select: employeeSelect,
-      orderBy: { fullName: 'asc' },
-      skip: (page - 1) * pageSize,
-      take: pageSize,
+      orderBy,
+      take: limit + 1,
     }),
-    prisma.employee.count({ where }),
+    prisma.employee.count({ where: filterWhere }),
   ]);
 
-  const pageCount = Math.max(1, Math.ceil(rowCount / pageSize));
+  const hasExtraRow = employees.length > limit;
+  const hasNextPage = beforeCursor ? !!(afterCursor || beforeCursor) : hasExtraRow;
+  const hasPreviousPage = beforeCursor ? hasExtraRow : !!afterCursor;
+
+  const trimmed = hasExtraRow ? employees.slice(0, -1) : employees;
+  const data = beforeCursor ? [...trimmed].reverse() : trimmed;
+
+  const startCursor = data.length > 0 ? data[0].id : undefined;
+  const endCursor = data.length > 0 ? data[data.length - 1].id : undefined;
+
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  return ok({ rows: (employees as any[]).map(toEmployeeAssignmentRow), rowCount, pageCount });
+  return ok({
+    rows: (data as any[]).map(toEmployeeAssignmentRow),
+    rowCount,
+    pageInfo: { hasNextPage, hasPreviousPage, startCursor, endCursor, limit },
+  });
 }
 
 // ─── Get Employee Assignments Detail ──────────────────────────────────────

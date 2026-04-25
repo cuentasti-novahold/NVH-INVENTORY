@@ -57,9 +57,12 @@ function yupToFieldErrors(e: unknown): Record<string, string> {
 
 // ─── List ──────────────────────────────────────────────────────────────────────
 
+import type { PageInfo } from '@/shared/types/pagination';
+
 export interface ListEmployeesParams {
-  page?: number;
   pageSize?: number;
+  afterCursor?: string;
+  beforeCursor?: string;
   isActive?: 'active' | 'inactive' | 'all';
   q?: string;
 }
@@ -67,7 +70,7 @@ export interface ListEmployeesParams {
 export interface ListEmployeesResult {
   rows: EmployeeRow[];
   rowCount: number;
-  pageCount: number;
+  pageInfo: PageInfo;
 }
 
 export async function listEmployeesAction(
@@ -80,35 +83,90 @@ export async function listEmployeesAction(
   )
     return err('FORBIDDEN', 'Sin permiso');
 
-  const page = Math.max(1, params.page ?? 1);
-  const pageSize = Math.min(100, Math.max(5, params.pageSize ?? 20));
+  const limit = Math.min(100, Math.max(5, params.pageSize ?? 20));
+  const { afterCursor, beforeCursor } = params;
   const isActive = params.isActive ?? 'active';
   const q = params.q?.trim() ?? '';
 
-  const where: Record<string, unknown> = {};
-  if (isActive === 'active') where.isActive = true;
-  else if (isActive === 'inactive') where.isActive = false;
+  const filterWhere: Record<string, unknown> = {};
+  if (isActive === 'active') filterWhere.isActive = true;
+  else if (isActive === 'inactive') filterWhere.isActive = false;
   if (q.length > 0) {
-    where.OR = [
+    filterWhere.OR = [
       { fullName: { contains: q } },
       { email: { contains: q } },
       { position: { contains: q } },
     ];
   }
 
+  let cursorWhere: Record<string, unknown> = {};
+  let orderBy: { createdAt?: 'asc' | 'desc'; id?: 'asc' | 'desc' }[] = [
+    { createdAt: 'desc' },
+    { id: 'desc' },
+  ];
+
+  if (afterCursor) {
+    const pivot = await prisma.employee.findUnique({
+      where: { id: afterCursor },
+      select: { createdAt: true },
+    });
+    if (pivot) {
+      cursorWhere = {
+        OR: [
+          { createdAt: { lt: pivot.createdAt } },
+          { createdAt: pivot.createdAt, id: { lt: afterCursor } },
+        ],
+      };
+    }
+  } else if (beforeCursor) {
+    const pivot = await prisma.employee.findUnique({
+      where: { id: beforeCursor },
+      select: { createdAt: true },
+    });
+    if (pivot) {
+      cursorWhere = {
+        OR: [
+          { createdAt: { gt: pivot.createdAt } },
+          { createdAt: pivot.createdAt, id: { gt: beforeCursor } },
+        ],
+      };
+      orderBy = [{ createdAt: 'asc' }, { id: 'asc' }];
+    }
+  }
+
+  const hasFilter = Object.keys(filterWhere).length > 0;
+  const hasCursor = Object.keys(cursorWhere).length > 0;
+  const finalWhere = hasFilter && hasCursor
+    ? { AND: [cursorWhere, filterWhere] }
+    : hasCursor
+      ? cursorWhere
+      : filterWhere;
+
   const [rows, rowCount] = await prisma.$transaction([
     prisma.employee.findMany({
-      where,
-      orderBy: { fullName: 'asc' },
-      skip: (page - 1) * pageSize,
-      take: pageSize,
+      where: finalWhere,
+      orderBy,
+      take: limit + 1,
       include: employeeInclude,
     }),
-    prisma.employee.count({ where }),
+    prisma.employee.count({ where: filterWhere }),
   ]);
 
-  const pageCount = Math.max(1, Math.ceil(rowCount / pageSize));
-  return ok({ rows: rows.map(toEmployeeRow), rowCount, pageCount });
+  const hasExtraRow = rows.length > limit;
+  const hasNextPage = beforeCursor ? !!(afterCursor || beforeCursor) : hasExtraRow;
+  const hasPreviousPage = beforeCursor ? hasExtraRow : !!afterCursor;
+
+  const trimmed = hasExtraRow ? rows.slice(0, -1) : rows;
+  const data = beforeCursor ? [...trimmed].reverse() : trimmed;
+
+  const startCursor = data.length > 0 ? data[0].id : undefined;
+  const endCursor = data.length > 0 ? data[data.length - 1].id : undefined;
+
+  return ok({
+    rows: data.map(toEmployeeRow),
+    rowCount,
+    pageInfo: { hasNextPage, hasPreviousPage, startCursor, endCursor, limit },
+  });
 }
 
 // ─── Search employees (autocomplete for assignment module) ─────────────────────

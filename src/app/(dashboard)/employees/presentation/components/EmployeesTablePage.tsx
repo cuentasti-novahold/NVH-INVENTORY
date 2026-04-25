@@ -16,15 +16,15 @@ import { buildEmployeeFormConfig } from '../forms/employee-form.config';
 import { useEmployees } from '../hooks/use-employees';
 import { importEmployeesAction } from '../../actions';
 import type { EmployeeRow, CreateEmployeeDTO, UpdateEmployeeDTO, EmployeeImportRow } from '../dto/employee.dto';
+import type { PageInfo } from '@/shared/types/pagination';
 
 type IsActiveParam = 'active' | 'inactive' | 'all';
 
 interface EmployeesTablePageProps {
   initialRows: EmployeeRow[];
   rowCount: number;
-  pageCount: number;
+  pageInfo: PageInfo;
   canWrite: boolean;
-  currentPage: number;
   currentPageSize: number;
   currentIsActive: IsActiveParam;
   currentQ: string;
@@ -33,9 +33,8 @@ interface EmployeesTablePageProps {
 export function EmployeesTablePage({
   initialRows,
   rowCount,
-  pageCount,
+  pageInfo,
   canWrite,
-  currentPage,
   currentPageSize,
   currentIsActive,
 }: EmployeesTablePageProps) {
@@ -115,6 +114,14 @@ export function EmployeesTablePage({
     [canWrite, deactivate, remove],
   );
 
+  function onNextPage() {
+    updateParams({ afterCursor: pageInfo.endCursor ?? null, beforeCursor: null });
+  }
+
+  function onPrevPage() {
+    updateParams({ beforeCursor: pageInfo.startCursor ?? null, afterCursor: null });
+  }
+
   const isActiveOptions: { label: string; value: IsActiveParam }[] = [
     { label: 'Activos', value: 'active' },
     { label: 'Inactivos', value: 'inactive' },
@@ -125,7 +132,7 @@ export function EmployeesTablePage({
     filters: isActiveOptions.map((opt) => ({
       title: opt.label,
       variant: (currentIsActive === opt.value ? 'default' : 'outline') as 'default' | 'outline',
-      onClick: () => updateParams({ isActive: opt.value, page: 1 }),
+      onClick: () => updateParams({ isActive: opt.value, afterCursor: null, beforeCursor: null }),
     })),
     import: canWrite
       ? [
@@ -181,15 +188,9 @@ export function EmployeesTablePage({
           columns={columns}
           data={initialRows}
           rowCount={rowCount}
-          pageCount={pageCount}
-          paginationState={{ page: currentPage, limit: currentPageSize }}
-          onPaginationChange={(updater) => {
-            const next = updater({
-              pageIndex: currentPage - 1,
-              pageSize: currentPageSize,
-            });
-            updateParams({ page: next.pageIndex + 1, pageSize: next.pageSize });
-          }}
+          pageInfo={pageInfo}
+          onNextPage={onNextPage}
+          onPrevPage={onPrevPage}
         />
       </Show>
       </div>

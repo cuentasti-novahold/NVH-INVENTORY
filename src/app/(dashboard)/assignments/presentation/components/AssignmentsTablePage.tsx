@@ -13,14 +13,14 @@ import { AssignmentDetailDialog } from './AssignmentDetailDialog';
 import { employeeAssignmentColumns } from './columns-assignments';
 import { exportAssignmentsAction } from '../../actions';
 import type { EmployeeAssignmentRow } from '../dto/assignment.dto';
+import type { PageInfo } from '@/shared/types/pagination';
 
 interface AssignmentsTablePageProps {
   initialRows: EmployeeAssignmentRow[];
   rowCount: number;
-  pageCount: number;
+  pageInfo: PageInfo;
   canWrite: boolean;
   canAdmin: boolean;
-  currentPage: number;
   currentPageSize: number;
   currentQ: string;
 }
@@ -28,10 +28,9 @@ interface AssignmentsTablePageProps {
 export function AssignmentsTablePage({
   initialRows,
   rowCount,
-  pageCount,
+  pageInfo,
   canWrite,
   canAdmin,
-  currentPage,
   currentPageSize,
 }: AssignmentsTablePageProps) {
   const [createOpen, setCreateOpen] = useState(false);
@@ -71,6 +70,14 @@ export function AssignmentsTablePage({
     ],
     [],
   );
+
+  function onNextPage() {
+    updateParams({ afterCursor: pageInfo.endCursor ?? null, beforeCursor: null });
+  }
+
+  function onPrevPage() {
+    updateParams({ beforeCursor: pageInfo.startCursor ?? null, afterCursor: null });
+  }
 
   const pageHeader = {
     import: canWrite
@@ -122,15 +129,9 @@ export function AssignmentsTablePage({
           columns={columns}
           data={initialRows}
           rowCount={rowCount}
-          pageCount={pageCount}
-          paginationState={{ page: currentPage, limit: currentPageSize }}
-          onPaginationChange={(updater) => {
-            const next = updater({
-              pageIndex: currentPage - 1,
-              pageSize: currentPageSize,
-            });
-            updateParams({ page: next.pageIndex + 1, pageSize: next.pageSize });
-          }}
+          pageInfo={pageInfo}
+          onNextPage={onNextPage}
+          onPrevPage={onPrevPage}
         />
       </Show>
       </div>

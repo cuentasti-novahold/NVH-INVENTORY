@@ -120,20 +120,35 @@ describe('listAssetsAction', () => {
     expect(r.ok).toBe(false);
   });
 
-  it('returns paginated rows for VIEWER', async () => {
+  it('returns cursor-paginated rows for VIEWER', async () => {
     mockAuth.mockResolvedValue(viewerSession);
+    mockAsset.findUnique.mockResolvedValue(null);
     (prisma.$transaction as ReturnType<typeof vi.fn>).mockResolvedValue([[baseAsset], 1]);
-    const r = await listAssetsAction({ page: 1, pageSize: 20 });
+    const r = await listAssetsAction({ pageSize: 20 });
     expect(r.ok).toBe(true);
     if (!r.ok) return;
     expect(r.data.rows).toHaveLength(1);
     expect(r.data.rows[0].assetCode).toBe('NVH-PC-00001');
     expect(r.data.rowCount).toBe(1);
-    expect(r.data.pageCount).toBe(1);
+    expect(r.data.pageInfo.hasNextPage).toBe(false);
+    expect(r.data.pageInfo.hasPreviousPage).toBe(false);
+  });
+
+  it('detects hasNextPage when extra row returned', async () => {
+    mockAuth.mockResolvedValue(viewerSession);
+    mockAsset.findUnique.mockResolvedValue(null);
+    const rows = Array.from({ length: 21 }, (_, i) => ({ ...baseAsset, id: `asset${i}` }));
+    (prisma.$transaction as ReturnType<typeof vi.fn>).mockResolvedValue([rows, 25]);
+    const r = await listAssetsAction({ pageSize: 20 });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.data.rows).toHaveLength(20);
+    expect(r.data.pageInfo.hasNextPage).toBe(true);
   });
 
   it('filters active assets by default', async () => {
     mockAuth.mockResolvedValue(adminSession);
+    mockAsset.findUnique.mockResolvedValue(null);
     (prisma.$transaction as ReturnType<typeof vi.fn>).mockResolvedValue([[], 0]);
     await listAssetsAction({ isActive: 'active' });
     const txCall = (prisma.$transaction as ReturnType<typeof vi.fn>).mock.calls[0][0];
