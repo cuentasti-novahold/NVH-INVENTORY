@@ -33,8 +33,15 @@ export const categoryCreateSchema = yup.object({
     .matches(/^[A-Z0-9]{2,6}$/, 'Prefijo: 2-6 caracteres, mayúsculas o dígitos')
     .required('Prefijo requerido'),
   description: yup.string().trim().max(500).nullable().optional(),
-  parentId: yup.string().min(1).nullable().optional(),
-  defaultUsefulLife: yup.number().integer().min(1).max(50).nullable().optional(),
+  parentId: yup.string().transform((val) => val === '' ? null : val).min(1).nullable().optional(),
+  defaultUsefulLife: yup
+    .number()
+    .transform((val, orig) => (orig === '' ? null : val))
+    .integer()
+    .min(1)
+    .max(50)
+    .nullable()
+    .optional(),
   fieldConfig: yup.mixed().nullable().optional().transform(validateFieldConfig),
 });
 

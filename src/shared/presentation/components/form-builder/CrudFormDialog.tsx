@@ -151,9 +151,10 @@ interface AutocompleteFieldProps extends FieldContext {
   onCascadeEnd?: () => void;
   onCascadeResult?: (result: Record<string, unknown>) => void;
   disabled?: boolean;
+  watchedValue?: string;
 }
 
-function AutocompleteField({ field, watch, setValue, onCascadeStart, onCascadeEnd, onCascadeResult, disabled }: AutocompleteFieldProps) {
+function AutocompleteField({ field, watch, setValue, onCascadeStart, onCascadeEnd, onCascadeResult, disabled, watchedValue }: AutocompleteFieldProps) {
   const cfg = field.autocompleteConfig!;
   const minChars = cfg.minChars ?? 2;
   const debounceMs = cfg.debounceMs ?? 250;
@@ -166,6 +167,19 @@ function AutocompleteField({ field, watch, setValue, onCascadeStart, onCascadeEn
   const [dropdownStyle, setDropdownStyle] = useState<React.CSSProperties>({});
   const inputRef = useRef<HTMLInputElement>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const isFirstEffect = useRef(true);
+
+  // Reset this field when the watched dependency changes (skip initial mount)
+  useEffect(() => {
+    if (isFirstEffect.current) { isFirstEffect.current = false; return; }
+    if (watchedValue === undefined) return;
+    setValue(field.name, '');
+    setQuery('');
+    setOptions([]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [watchedValue]);
+
+  const isWatchDisabled = !!cfg.watchField && !watchedValue;
 
   function calcPosition() {
     if (!inputRef.current) return;
@@ -182,7 +196,7 @@ function AutocompleteField({ field, watch, setValue, onCascadeStart, onCascadeEn
   function runSearch(q: string) {
     if (q.trim().length < minChars) { setOptions([]); return; }
     setLoading(true);
-    cfg.searchAction(q.trim())
+    cfg.searchAction(q.trim(), watchedValue)
       .then((opts) => setOptions(opts))
       .catch(() => setOptions([]))
       .finally(() => setLoading(false));
@@ -258,9 +272,9 @@ function AutocompleteField({ field, watch, setValue, onCascadeStart, onCascadeEn
         onChange={(e) => onChange(e.target.value)}
         onFocus={onFocus}
         onBlur={() => setTimeout(() => setOpen(false), 150)}
-        placeholder={cfg.placeholder ?? field.label}
+        placeholder={isWatchDisabled ? 'Seleccioná primero la sede…' : (cfg.placeholder ?? field.label)}
         className="h-9"
-        disabled={disabled}
+        disabled={disabled || isWatchDisabled}
       />
       {loading && (
         <div className="pointer-events-none absolute right-2.5 top-1/2 -translate-y-1/2">
@@ -410,6 +424,21 @@ export function CrudFormDialog({
   const [cascadeLoadingField, setCascadeLoadingField] = useState<string | null>(null);
   const [cascadeOptions, setCascadeOptions] = useState<Record<string, { label: string; value: string }[]>>({});
 
+  // Collect unique watchField names from autocomplete configs and subscribe to them
+  const autocompleteWatchFields = useMemo(() => {
+    return [...new Set(
+      getFields(formConfig)
+        .filter(f => f.type === 'autocomplete' && f.autocompleteConfig?.watchField)
+        .map(f => f.autocompleteConfig!.watchField!)
+    )];
+  }, [formConfig]);
+
+  // Read current values — calling watch() here subscribes CrudFormDialog to changes in each field
+  const watchedAutoValues: Record<string, string> = {};
+  for (const wf of autocompleteWatchFields) {
+    watchedAutoValues[wf] = (watch(wf) as string) ?? '';
+  }
+
   // T-06: server-action visibility state
   const [dynamicVisibility, setDynamicVisibility] = useState<Record<string, FieldVisibility>>({});
 
@@ -502,6 +531,7 @@ export function CrudFormDialog({
     let fieldElement: React.ReactNode;
 
     if (field.type === 'autocomplete') {
+      const wf = field.autocompleteConfig?.watchField;
       fieldElement = (
         // key on wrapper syncs display state when editing different records (no useEffect)
         <div key={field.autocompleteConfig?.initialDisplayValue ?? field.name}>
@@ -514,6 +544,7 @@ export function CrudFormDialog({
             onCascadeEnd={() => setCascadeLoadingField(null)}
             onCascadeResult={handleCascadeResult}
             disabled={isAutocompleteDisabled}
+            watchedValue={wf ? watchedAutoValues[wf] : undefined}
           />
         </div>
       );

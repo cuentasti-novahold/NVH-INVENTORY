@@ -2,7 +2,7 @@ import { Tag, Cpu, Activity, DollarSign, MapPin, Link2, FileText } from 'lucide-
 import type { FormConfig, FieldVisibility } from '@/shared/presentation/types/form-config.types';
 import { getCategoryFieldConfigAction, searchAssetsAction } from '@/app/(dashboard)/assets/actions';
 import { searchCategoriesAction } from '@/app/(dashboard)/settings/categories/actions';
-import { searchLocationsAction, searchBodegasAction } from '@/app/(dashboard)/settings/locations/actions';
+import { searchLocationsAction, searchBodegasByLocationAction } from '@/app/(dashboard)/settings/locations/actions';
 import type { AssetRow, CreateAssetDTO, AssetStatus, StorageType } from '../dto/asset.dto';
 
 /* ─── Mode B server action — called once per unique categoryId ──── */
@@ -282,7 +282,8 @@ export function buildAssetFormConfig(editing?: AssetRow | null): FormConfig {
             type: 'autocomplete',
             gridCols: 2,
             autocompleteConfig: {
-              searchAction: (q) => searchBodegasAction(q).then((r) => (r.ok ? r.data : [])),
+              searchAction: (q, locationId) => searchBodegasByLocationAction(q, locationId).then((r) => (r.ok ? r.data : [])),
+              watchField: 'locationId',
               returnMode: 'code',
               placeholder: 'Buscar bodega…',
               minChars: 1,

@@ -18,13 +18,15 @@ export interface VisibilityServerAction {
 }
 
 export interface AutocompleteConfig {
-  searchAction: (query: string) => Promise<AutocompleteOption[]>;
+  searchAction: (query: string, watchedValue?: string) => Promise<AutocompleteOption[]>;
   returnMode: 'code' | 'value' | 'both';
   placeholder?: string;
   minChars?: number;
   debounceMs?: number;
   initialDisplayValue?: string;
   initialDisplayValueField?: string;
+  /** Field name whose current value is passed as second arg to searchAction and disables this field when empty */
+  watchField?: string;
   cascade?: CascadeConfig;
 }
 
