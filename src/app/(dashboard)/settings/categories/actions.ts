@@ -14,12 +14,16 @@ const INCLUDE = {
   _count: { select: { children: true, assets: true } },
 } as const;
 
-async function requireWrite() {
+type AuthCheck =
+  | { ok: true; userId: string }
+  | { ok: false; error: ActionResult<never> };
+
+async function requireWrite(): Promise<AuthCheck> {
   const session = await auth();
-  if (!session?.user) return { error: err('UNAUTHORIZED', 'No autenticado') };
+  if (!session?.user) return { ok: false, error: err('UNAUTHORIZED', 'No autenticado') };
   if (!hasPermission(session.user.role as Parameters<typeof hasPermission>[0], 'categories', 'create'))
-    return { error: err('FORBIDDEN', 'Sin permiso') };
-  return { session };
+    return { ok: false, error: err('FORBIDDEN', 'Sin permiso') };
+  return { ok: true, userId: session.user.id as string };
 }
 
 import type { PageInfo } from '@/shared/types/pagination';
@@ -175,7 +179,7 @@ export async function createCategoryAction(
   input: CreateCategoryDTO,
 ): Promise<ActionResult<CategoryRow>> {
   const guard = await requireWrite();
-  if ('error' in guard) return guard.error;
+  if (!guard.ok) return guard.error;
 
   let dto: CreateCategoryDTO;
   try {
@@ -214,7 +218,7 @@ export async function updateCategoryAction(
   input: UpdateCategoryDTO,
 ): Promise<ActionResult<CategoryRow>> {
   const guard = await requireWrite();
-  if ('error' in guard) return guard.error;
+  if (!guard.ok) return guard.error;
 
   const existing = await prisma.category.findUnique({
     where: { id },
@@ -269,7 +273,7 @@ export async function updateCategoryAction(
 
 export async function deleteCategoryAction(id: string): Promise<ActionResult<void>> {
   const guard = await requireWrite();
-  if ('error' in guard) return guard.error;
+  if (!guard.ok) return guard.error;
 
   const row = await prisma.category.findUnique({
     where: { id },

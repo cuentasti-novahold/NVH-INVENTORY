@@ -4,7 +4,8 @@ import { PrismaAdapter } from '@auth/prisma-adapter';
 import { prisma } from '@/lib/prisma';
 import { authConfig } from '@/auth.config';
 import type { UserRole } from '@/generated/prisma';
-import type { Session, JWT } from 'next-auth';
+import type { Session } from 'next-auth';
+import type { JWT } from 'next-auth/jwt';
 
 const isDev = process.env.NODE_ENV === 'development';
 

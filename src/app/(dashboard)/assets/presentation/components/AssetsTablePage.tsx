@@ -40,12 +40,19 @@ export function AssetsTablePage({
   currentIsActive,
   currentQ,
 }: AssetsTablePageProps) {
-  const [dialogs, setDialogs] = useState({
+  const [uiState, setUiState] = useState<{
+    createOpen: boolean;
+    editOpen: boolean;
+    importOpen: boolean;
+    editing: AssetRow | null;
+    editKey: number;
+  }>({
     createOpen: false,
     editOpen: false,
     importOpen: false,
+    editing: null,
+    editKey: 0,
   });
-  const [editing, setEditing] = useState<AssetRow | null>(null);
 
   const router = useRouter();
   const pathname = usePathname();
@@ -81,8 +88,7 @@ export function AssetsTablePage({
                   variant="ghost"
                   className="h-8 w-8"
                   onClick={() => {
-                    setEditing(row.original);
-                    setDialogs((s) => ({ ...s, editOpen: true }));
+                    setUiState((s) => ({ ...s, editing: row.original, editOpen: true, editKey: s.editKey + 1 }));
                   }}
                 >
                   <Pencil className="h-4 w-4" />
@@ -138,7 +144,6 @@ export function AssetsTablePage({
 
   return (
     <div className="flex h-full flex-col gap-4 p-6 overflow-hidden">
-      {/* Page title */}
       <div className="flex items-center gap-3">
         <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
           <Package className="h-4 w-4" />
@@ -160,66 +165,67 @@ export function AssetsTablePage({
           { label: 'Por vencer (6m)', description: 'Garantías próximas a vencer', action: () => exportExpiringAction(6) },
         ],
         actions: canWrite ? [
-          { label: 'Importar Excel', icon: <FileSpreadsheet className="h-3.5 w-3.5" />, variant: 'outline', onClick: () => setDialogs((s) => ({ ...s, importOpen: true })) },
-          { label: 'Nuevo activo', icon: <Plus className="h-3.5 w-3.5" />, onClick: () => { setEditing(null); setDialogs((s) => ({ ...s, createOpen: true })); } },
+          { label: 'Importar Excel', icon: <FileSpreadsheet className="h-3.5 w-3.5" />, variant: 'outline', onClick: () => setUiState((s) => ({ ...s, importOpen: true })) },
+          { label: 'Nuevo activo', icon: <Plus className="h-3.5 w-3.5" />, onClick: () => setUiState((s) => ({ ...s, editing: null, createOpen: true })) },
         ] : undefined,
       }} />
 
       <div className="flex-1 min-h-0">
-      <Show
-        when={initialRows.length > 0}
-        fallback={
-          <div className="flex flex-col items-center justify-center py-20 text-muted-foreground">
-            <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-muted">
-              <Package className="h-6 w-6" />
+        <Show
+          when={initialRows.length > 0}
+          fallback={
+            <div className="flex flex-col items-center justify-center py-20 text-muted-foreground">
+              <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-full bg-muted">
+                <Package className="h-6 w-6" />
+              </div>
+              <p className="text-sm font-medium text-foreground">Sin activos</p>
+              <p className="mt-1 text-xs">No hay registros que coincidan con los filtros.</p>
             </div>
-            <p className="text-sm font-medium text-foreground">Sin activos</p>
-            <p className="mt-1 text-xs">No hay registros que coincidan con los filtros.</p>
-          </div>
-        }
-      >
-        <MainDataTable
-          columns={columns}
-          data={initialRows}
-          rowCount={rowCount}
-          pageInfo={pageInfo}
-          onNextPage={onNextPage}
-          onPrevPage={onPrevPage}
-        />
-      </Show>
+          }
+        >
+          <MainDataTable
+            columns={columns}
+            data={initialRows}
+            rowCount={rowCount}
+            pageInfo={pageInfo}
+            onNextPage={onNextPage}
+            onPrevPage={onPrevPage}
+          />
+        </Show>
       </div>
 
       <CrudFormDialog
-        open={dialogs.createOpen}
-        onOpenChange={(open) => setDialogs((s) => ({ ...s, createOpen: open }))}
+        open={uiState.createOpen}
+        onOpenChange={(open) => setUiState((s) => ({ ...s, createOpen: open }))}
         title="Nuevo activo"
         formConfig={buildAssetFormConfig()}
         defaultValues={buildAssetDefaultValues()}
         isLoading={pending}
         onSubmit={(data) =>
-          create(buildAssetDTO(data), () => setDialogs((s) => ({ ...s, createOpen: false })))
+          create(buildAssetDTO(data), () => setUiState((s) => ({ ...s, createOpen: false })))
         }
       />
 
       <CrudFormDialog
-        open={dialogs.editOpen}
-        onOpenChange={(open) => setDialogs((s) => ({ ...s, editOpen: open }))}
-        title={editing ? `Editar ${editing.assetCode}` : 'Editar activo'}
-        subtitle={editing ? editing.categoryName : undefined}
-        formConfig={buildAssetFormConfig(editing)}
-        defaultValues={buildAssetDefaultValues(editing)}
+        key={uiState.editKey}
+        open={uiState.editOpen}
+        onOpenChange={(open) => setUiState((s) => ({ ...s, editOpen: open }))}
+        title={uiState.editing ? `Editar ${uiState.editing.assetCode}` : 'Editar activo'}
+        subtitle={uiState.editing?.categoryName}
+        formConfig={buildAssetFormConfig(uiState.editing)}
+        defaultValues={buildAssetDefaultValues(uiState.editing)}
         isLoading={pending}
         onSubmit={(data) => {
-          if (!editing) return;
-          update(editing.id, buildAssetDTO(data), () =>
-            setDialogs((s) => ({ ...s, editOpen: false })),
+          if (!uiState.editing) return;
+          update(uiState.editing.id, buildAssetDTO(data), () =>
+            setUiState((s) => ({ ...s, editOpen: false })),
           );
         }}
       />
 
       <ExcelImportDialog<AssetImportRow>
-        open={dialogs.importOpen}
-        onOpenChange={(open) => setDialogs((s) => ({ ...s, importOpen: true, ...(!open && { importOpen: false }) }))}
+        open={uiState.importOpen}
+        onOpenChange={(open) => setUiState((s) => ({ ...s, importOpen: true, ...(!open && { importOpen: false }) }))}
         title="Importar activos"
         description="Columnas requeridas: category. Opcionales: brand, model, serialNumber, hostname, processor, ram, storageCapacity, storageType, operatingSystem, purchasePrice, currencyCode, usefulLifeYears, purchaseDate, generalStatus, location, bodega, notes."
         expectedColumns={['category']}

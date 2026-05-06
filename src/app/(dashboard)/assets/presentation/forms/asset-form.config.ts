@@ -263,33 +263,47 @@ export function buildAssetFormConfig(editing?: AssetRow | null): FormConfig {
         icon: MapPin,
         accent: 'bg-cyan-600',
         fields: [
-          {
-            name: 'locationId',
-            label: 'Sede',
-            type: 'autocomplete',
-            gridCols: 2,
-            autocompleteConfig: {
-              searchAction: (q) => searchLocationsAction(q).then((r) => (r.ok ? r.data : [])),
-              returnMode: 'code',
-              placeholder: 'Buscar sede…',
-              minChars: 1,
-              initialDisplayValue: editing?.locationName ?? undefined,
-            },
-          },
-          {
-            name: 'bodegaId',
-            label: 'Bodega',
-            type: 'autocomplete',
-            gridCols: 2,
-            autocompleteConfig: {
-              searchAction: (q, locationId) => searchBodegasByLocationAction(q, locationId).then((r) => (r.ok ? r.data : [])),
-              watchField: 'locationId',
-              returnMode: 'code',
-              placeholder: 'Buscar bodega…',
-              minChars: 1,
-              initialDisplayValue: editing?.bodegaName ?? undefined,
-            },
-          },
+          editing
+            ? {
+                name: 'locationId',
+                label: 'Sede',
+                type: 'readonly' as const,
+                gridCols: 2,
+                format: () => editing.locationName ?? '—',
+              }
+            : {
+                name: 'locationId',
+                label: 'Sede',
+                type: 'autocomplete' as const,
+                gridCols: 2,
+                autocompleteConfig: {
+                  searchAction: (q) => searchLocationsAction(q).then((r) => (r.ok ? r.data : [])),
+                  returnMode: 'code' as const,
+                  placeholder: 'Buscar sede…',
+                  minChars: 1,
+                },
+              },
+          editing
+            ? {
+                name: 'bodegaId',
+                label: 'Bodega',
+                type: 'readonly' as const,
+                gridCols: 2,
+                format: () => editing.bodegaName ?? '—',
+              }
+            : {
+                name: 'bodegaId',
+                label: 'Bodega',
+                type: 'autocomplete' as const,
+                gridCols: 2,
+                autocompleteConfig: {
+                  searchAction: (q, locationId) => searchBodegasByLocationAction(q, locationId).then((r) => (r.ok ? r.data : [])),
+                  watchField: 'locationId',
+                  returnMode: 'code' as const,
+                  placeholder: 'Buscar bodega…',
+                  minChars: 1,
+                },
+              },
         ],
       },
 

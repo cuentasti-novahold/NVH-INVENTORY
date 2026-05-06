@@ -1,0 +1,61 @@
+# Dependencies — se reinstalan limpio en el stage deps
+node_modules
+.pnpm-store
+
+# Build outputs — se regeneran en el stage builder
+.next
+out
+build
+dist
+
+# Tests y coverage — no van a producción
+coverage
+playwright-report
+test-results
+**/*.test.ts
+**/*.test.tsx
+**/*.spec.ts
+**/__tests__
+
+# Env files — los secretos los inyecta App Runner, NUNCA bakearlos en la imagen
+.env
+.env.*
+.env.local
+.env.development
+.env.production
+.env.*.local
+.env.docker
+
+# Git y CI
+.git
+.gitignore
+.github
+
+# IDE / OS
+.vscode
+.idea
+.DS_Store
+*.swp
+
+# Logs y caches
+*.log
+npm-debug.log*
+.npm
+.eslintcache
+.cache
+
+# Docker mismo
+Dockerfile
+.dockerignore
+docker-compose*.yml
+
+# Docs y meta
+README.md
+CLAUDE.md
+AGENTS.md
+PRD.md
+SCHEMA.md
+.claude
+.cursor
+openspec
+skills

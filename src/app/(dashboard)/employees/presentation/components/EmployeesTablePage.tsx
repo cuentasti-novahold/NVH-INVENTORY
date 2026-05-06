@@ -183,7 +183,7 @@ export function EmployeesTablePage({
         formConfig={buildEmployeeFormConfig({})}
         isLoading={pending}
         onSubmit={(values) =>
-          create(values as CreateEmployeeDTO, () =>
+          create(values as unknown as CreateEmployeeDTO, () =>
             setDialogs((s) => ({ ...s, createOpen: false })),
           )
         }

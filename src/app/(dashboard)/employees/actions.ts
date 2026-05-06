@@ -4,6 +4,7 @@ import * as yup from 'yup';
 import { revalidatePath } from 'next/cache';
 import { auth } from '@/auth';
 import { prisma } from '@/lib/prisma';
+import type { Prisma } from '@/generated/prisma/client';
 import { hasPermission } from '@/lib/permissions';
 import { ok, err, type ActionResult } from '@/shared/types/action-result';
 import type { ExcelImportResult, ExcelRowError } from '@/shared/ui/types/excel-import.types';
@@ -20,13 +21,16 @@ import type {
 } from './presentation/dto/employee.dto';
 
 type Role = Parameters<typeof hasPermission>[0];
+type AuthCheck =
+  | { ok: true; userId: string }
+  | { ok: false; error: ActionResult<never> };
 
-async function requireWrite() {
+async function requireWrite(): Promise<AuthCheck> {
   const session = await auth();
-  if (!session?.user) return { error: err('UNAUTHORIZED', 'No autenticado') };
+  if (!session?.user) return { ok: false, error: err('UNAUTHORIZED', 'No autenticado') };
   if (!hasPermission(session.user.role as Role, 'employees', 'create'))
-    return { error: err('FORBIDDEN', 'Sin permiso') };
-  return { session };
+    return { ok: false, error: err('FORBIDDEN', 'Sin permiso') };
+  return { ok: true, userId: session.user.id as string };
 }
 
 function isP2002(e: unknown, target: string): boolean {
@@ -214,7 +218,7 @@ export async function createEmployeeAction(
   input: CreateEmployeeDTO,
 ): Promise<ActionResult<EmployeeRow>> {
   const g = await requireWrite();
-  if ('error' in g) return g.error;
+  if (!g.ok) return g.error;
 
   let dto: CreateEmployeeDTO;
   try {
@@ -269,7 +273,7 @@ export async function updateEmployeeAction(
   input: UpdateEmployeeDTO,
 ): Promise<ActionResult<EmployeeRow>> {
   const g = await requireWrite();
-  if ('error' in g) return g.error;
+  if (!g.ok) return g.error;
 
   let dto: UpdateEmployeeDTO;
   try {
@@ -331,7 +335,7 @@ export async function updateEmployeeAction(
 
 export async function deleteEmployeeAction(id: string): Promise<ActionResult<void>> {
   const g = await requireWrite();
-  if ('error' in g) return g.error;
+  if (!g.ok) return g.error;
 
   const row = await prisma.employee.findUnique({
     where: { id },
@@ -353,7 +357,7 @@ export async function deleteEmployeeAction(id: string): Promise<ActionResult<voi
 
 export async function deactivateEmployeeAction(id: string): Promise<ActionResult<void>> {
   const g = await requireWrite();
-  if ('error' in g) return g.error;
+  if (!g.ok) return g.error;
 
   try {
     await prisma.employee.update({ where: { id }, data: { isActive: false } });
@@ -378,8 +382,8 @@ export async function importEmployeesAction(
   rows: EmployeeImportRow[],
 ): Promise<ActionResult<ExcelImportResult>> {
   const g = await requireWrite();
-  if ('error' in g) return g.error;
-  const userId = g.session.user.id as string;
+  if (!g.ok) return g.error;
+  const userId = g.userId;
 
   const errors: ExcelRowError[] = [];
   let inserted = 0;
@@ -507,7 +511,7 @@ export async function importEmployeesAction(
       totalRows: rows.length,
       successRows: inserted,
       errorRows: skipped,
-      errors: errors.length > 0 ? errors : undefined,
+      errors: errors.length > 0 ? (errors as unknown as Prisma.InputJsonValue) : undefined,
       status: inserted === 0 && skipped > 0 ? 'FAILED' : 'COMPLETED',
     },
   });
