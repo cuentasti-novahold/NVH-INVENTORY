@@ -57,7 +57,14 @@ export type ImportPermissionResource = string;
 
 export interface ExcelImportConfig<TRow = Record<string, unknown>> {
   moduleKey: ImportPermissionResource;
+  /** Human-readable display name shown in the dialog title/description */
   displayName: string;
+  /**
+   * Entity name used as the `entity` field in ImportLog.
+   * Should be the Prisma model name, e.g. 'Category', 'Employee'.
+   * Used by the action's fallback log write (all-failed-before-handler case).
+   */
+  entity: string;
   sheetName: string;
   maxRows?: number;
   columns: ColumnDef[];

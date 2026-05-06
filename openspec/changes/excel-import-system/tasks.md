@@ -94,7 +94,7 @@ All files are pure TypeScript with no UI. No Server Actions yet. Independently b
 
 Depends on Phase 1 (PR1a merged). Server Actions + Client dialog.
 
-- [ ] T-08 — CREATE `src/shared/excel-import/actions.ts` (~70 LOC)
+- [x] T-08 — CREATE `src/shared/excel-import/actions.ts` (~70 LOC)
   - Exports: `previewImportAction(moduleKey, fileBase64, fileName)` and `confirmImportAction(moduleKey, fileBase64, fileName)`
   - Both return `ActionResult<ImportPreviewResult|ImportConfirmResult>`; error codes: UNAUTHORIZED, FORBIDDEN, VALIDATION, UNKNOWN
   - `confirm` re-parses + re-validates from base64 (server-trust, never trusts client validRows)
@@ -103,7 +103,7 @@ Depends on Phase 1 (PR1a merged). Server Actions + Client dialog.
   - Accept: VIEWER → FORBIDDEN; unknown moduleKey → VALIDATION Spanish; confirm re-parses regardless of preview
   - Dependencies: T-01, T-02, T-03, T-04, T-05, T-06, T-07
 
-- [ ] T-09 — CREATE `src/shared/excel-import/components/ExcelImportDialog.tsx` (~180 LOC)
+- [x] T-09 — CREATE `src/shared/excel-import/components/ExcelImportDialog.tsx` (~180 LOC)
   - Discriminated-union state machine: `idle → selecting → previewing → preview-result → confirming → done | error`
   - Props: `{ open, onOpenChange, moduleKey, title, description?, onSuccess? }`
   - Holds `fileBase64` in client memory through preview → confirm (no re-upload)

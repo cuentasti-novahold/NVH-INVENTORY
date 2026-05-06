@@ -10,10 +10,18 @@ import type { MasterValidation, RowError } from './types';
  *
  * Rows should already have passed type validation (validRows from validateRows).
  * This function does NOT re-run type validation.
+ *
+ * @param rows             - Type-valid rows (output of validateRows.validRows)
+ * @param masterValidations - MasterValidation array from ExcelImportConfig
+ * @param rowNumbers        - Parallel array to rows: the original 1-based Excel row number
+ *                            for each entry. When provided, error.row uses the exact Excel
+ *                            position instead of the approximated i+2.
+ *                            Must have the same length as rows when provided.
  */
 export async function runMasterValidations(
   rows: Record<string, unknown>[],
   masterValidations: MasterValidation[],
+  rowNumbers?: number[],
 ): Promise<RowError[]> {
   if (!masterValidations.length) return [];
 
@@ -41,11 +49,11 @@ export async function runMasterValidations(
         if (raw === null || raw === undefined || String(raw).trim() === '') continue;
         const strVal = String(raw).trim();
         if (!validSet.has(strVal)) {
-          // Row number: validRows are 0-indexed slices of the full dataset.
-          // We can only compute approximate position; callers may pass validRows
-          // whose original row numbers are lost here. Use index + 2 as best-effort.
+          // Use the exact Excel row number when provided (from validateRows.rowNumbers).
+          // Fall back to i+2 approximation only when rowNumbers is absent.
+          const row = rowNumbers?.[i] ?? i + 2;
           errors.push({
-            row: i + 2,
+            row,
             field: mv.key,
             message: mv.errorMessage,
           });
