@@ -39,26 +39,26 @@ Chained PRs recommended: Yes
 
 All files are pure TypeScript with no UI. No Server Actions yet. Independently buildable.
 
-- [ ] T-01 — CREATE `src/shared/excel-import/types.ts` (~60 LOC)
+- [x] T-01 — CREATE `src/shared/excel-import/types.ts` (~60 LOC)
   - Exports: `ColumnDef`, `MasterValidation`, `ExcelImportConfig<TRow>`, `RowError`, `ImportPreviewResult`, `ImportConfirmResult`, `ImportPermissionResource`
   - Design §1 pins all shapes. Spec: REQ-01 (two-phase), REQ-04 (per-row errors), REQ-07 (errorFileBase64)
   - Accept: `errorFileBase64` present on BOTH `ImportPreviewResult` and `ImportConfirmResult` (design §1 addition)
   - Dependencies: none
 
-- [ ] T-02 — CREATE `src/shared/excel-import/registry.ts` (~20 LOC)
+- [x] T-02 — CREATE `src/shared/excel-import/registry.ts` (~20 LOC)
   - `Map<string, ExcelImportConfig<unknown>>`, `registry.set(...)`, `getImportConfig(moduleKey)` throws Spanish error on miss
   - Design §2 (registry) + §6 (safety). Spec: REQ-02 (unknown moduleKey → VALIDATION error)
   - Accept: `getImportConfig("nonexistent")` throws `Error` with Spanish message; starts empty (no imports yet)
   - Dependencies: T-01
 
-- [ ] T-03 — CREATE `src/shared/excel-import/log.ts` (~20 LOC)
+- [x] T-03 — CREATE `src/shared/excel-import/log.ts` (~20 LOC)
   - Exports: `writeImportLog(entity, result, userId, fileName): Promise<void>`
   - Owns `as unknown as Prisma.InputJsonValue` cast; status = `FAILED` only when `totalReceived > 0 && created === 0`
   - Design §2 (log.ts signature). Spec: REQ-08 (audit log, COMPLETED vs FAILED)
   - Accept: writes exactly one `ImportLog` row; status COMPLETED when any row succeeded, FAILED when all fail
   - Dependencies: T-01
 
-- [ ] T-04 — CREATE `src/shared/excel-import/parser.ts` (~40 LOC)
+- [x] T-04 — CREATE `src/shared/excel-import/parser.ts` (~40 LOC)
   - Exports: `parseExcelFile(fileBase64, sheetName, maxRows): Record<string, unknown>[]`
   - Throws `ExcelParseError` with codes: `SHEET_NOT_FOUND`, `EMPTY_SHEET`, `BAD_FILE`
   - Enforces file constraints pre-parsing (10 MB limit, correct sheet, maxRows). Uses `xlsx` (already installed).
@@ -66,7 +66,7 @@ All files are pure TypeScript with no UI. No Server Actions yet. Independently b
   - Accept: wrong sheetName throws SHEET_NOT_FOUND; >5000 rows throws maxRows error in Spanish
   - Dependencies: T-01
 
-- [ ] T-05 — CREATE `src/shared/excel-import/validator.ts` (~80 LOC)
+- [x] T-05 — CREATE `src/shared/excel-import/validator.ts` (~80 LOC)
   - Exports: `validateRows(rows, columns): { validRows, errors: RowError[], rowNumbers }`
   - Validates: required, string/number/boolean/email/enum/date types, maxLength, enumValues
   - Accumulates ALL errors per row (no short-circuit). Excludes row from validRows on any error.
@@ -74,14 +74,14 @@ All files are pure TypeScript with no UI. No Server Actions yet. Independently b
   - Accept: row with 2 errors returns both in errors[]; valid rows excluded from errors
   - Dependencies: T-01
 
-- [ ] T-06 — CREATE `src/shared/excel-import/master-validator.ts` (~40 LOC)
+- [x] T-06 — CREATE `src/shared/excel-import/master-validator.ts` (~40 LOC)
   - Exports: `runMasterValidations(rows, mvs): Promise<RowError[]>`
   - One Prisma call per MV with deduped non-empty values via `lookup(values)`; runs AFTER type validation
   - Design §2 (master-validator). Spec: REQ-05 (master data lookups, parentName not found = row error)
   - Accept: unknown parentName returns RowError with design-specified Spanish message; known parentName produces no error
   - Dependencies: T-01
 
-- [ ] T-07 — CREATE `src/shared/excel-import/error-excel-builder.ts` (~35 LOC)
+- [x] T-07 — CREATE `src/shared/excel-import/error-excel-builder.ts` (~35 LOC)
   - Exports: `buildErrorExcel(rows, errors, columns, sheetName): string` (base64)
   - Appends "Errores" column to original sheet; `;`-joins multiple messages per row; empty string for clean rows
   - Design §2 (error-excel-builder). Spec: REQ-07 (error file format, zero-error = no file)
