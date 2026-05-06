@@ -5,6 +5,7 @@ import {
   AlertCircle,
   Check,
   CheckCircle2,
+  ChevronDown,
   Download,
   FileSpreadsheet,
   Loader2,
@@ -181,6 +182,7 @@ export function ExcelImportDialog({
   const [state, setState] = useState<DialogState>({ kind: 'idle' });
   const [isDragging, setIsDragging] = useState(false);
   const [schema, setSchema] = useState<ImportSchemaSummary | null>(null);
+  const [schemaOpen, setSchemaOpen] = useState(false);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
@@ -321,9 +323,9 @@ export function ExcelImportDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl gap-0 overflow-hidden rounded-xl border border-border/80 p-0 shadow-2xl shadow-black/10">
+      <DialogContent className="w-[calc(100%-1.5rem)] max-w-[calc(100%-1.5rem)] gap-0 overflow-hidden rounded-xl border border-border/80 p-0 shadow-2xl shadow-black/10 sm:w-full sm:max-w-2xl">
         {/* ── Header ── */}
-        <DialogHeader className="space-y-0 border-b border-border/70 px-6 py-4">
+        <DialogHeader className="space-y-0 border-b border-border/70 px-4 py-4 sm:px-6">
           <div className="flex items-center gap-3">
             <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-border/70 bg-muted/40">
               <FileSpreadsheet className="h-[18px] w-[18px] text-emerald-600 dark:text-emerald-400" />
@@ -340,12 +342,12 @@ export function ExcelImportDialog({
         </DialogHeader>
 
         {/* ── Stepper ── */}
-        <div className="border-b border-border/70 bg-muted/10 px-10 py-4">
+        <div className="border-b border-border/70 bg-muted/10 px-4 py-4 sm:px-10">
           <Stepper active={getActiveStep(state)} />
         </div>
 
         {/* ── Body ── */}
-        <div className="flex max-h-[65vh] flex-col gap-3 overflow-y-auto px-6 py-5">
+        <div className="flex max-h-[65vh] flex-col gap-3 overflow-y-auto px-4 py-5 sm:px-6">
           {/* Hidden file input — always mounted */}
           <input
             ref={fileInputRef}
@@ -507,15 +509,24 @@ export function ExcelImportDialog({
             </div>
           )}
 
-          {/* ── Schema fields section (only on upload stage) ── */}
+          {/* ── Schema fields accordion (only on upload stage) ── */}
           {showUploadStage && schema && (schema.requiredFields.length > 0 || schema.optionalFields.length > 0) && (
-            <div className="flex flex-col gap-3 rounded-xl border border-border/70 bg-card px-4 py-3.5">
-              <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5">
+            <div className="overflow-hidden rounded-xl border border-border/70 bg-card">
+              <button
+                type="button"
+                onClick={() => setSchemaOpen((v) => !v)}
+                aria-expanded={schemaOpen}
+                aria-controls="excel-schema-fields-panel"
+                className={cn(
+                  'flex w-full items-center gap-2.5 px-4 py-3 text-left transition-colors',
+                  'hover:bg-muted/30 focus-visible:outline-none focus-visible:bg-muted/30',
+                )}
+              >
                 <FileSpreadsheet className="h-4 w-4 shrink-0 text-muted-foreground" />
                 <span className="whitespace-nowrap text-sm font-semibold text-foreground">
                   Campos del archivo
                 </span>
-                <span className="ml-auto flex flex-wrap items-center gap-1.5">
+                <span className="ml-auto flex flex-wrap items-center justify-end gap-1.5">
                   {schema.requiredFields.length > 0 && (
                     <Badge
                       variant="outline"
@@ -533,46 +544,67 @@ export function ExcelImportDialog({
                     </Badge>
                   )}
                 </span>
+                <ChevronDown
+                  className={cn(
+                    'h-4 w-4 shrink-0 text-muted-foreground transition-transform duration-200',
+                    schemaOpen && 'rotate-180',
+                  )}
+                  aria-hidden
+                />
+              </button>
+
+              <div
+                id="excel-schema-fields-panel"
+                role="region"
+                aria-hidden={!schemaOpen}
+                className={cn(
+                  'grid transition-[grid-template-rows] duration-200 ease-out',
+                  schemaOpen ? 'grid-rows-[1fr]' : 'grid-rows-[0fr]',
+                )}
+              >
+                <div className="overflow-hidden">
+                  <div className="flex flex-col gap-3 border-t border-border/70 px-4 py-3.5">
+                    {schema.requiredFields.length > 0 && (
+                      <div className="flex flex-col gap-1.5">
+                        <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                          Obligatorios
+                        </span>
+                        <div className="flex flex-wrap gap-1.5">
+                          {schema.requiredFields.map((f) => (
+                            <Badge
+                              key={f}
+                              variant="outline"
+                              className="border-border/70 bg-background text-foreground"
+                            >
+                              {f}
+                              <span className="ml-0.5 text-rose-500">*</span>
+                            </Badge>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {schema.optionalFields.length > 0 && (
+                      <div className="flex flex-col gap-1.5">
+                        <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
+                          Opcionales
+                        </span>
+                        <div className="flex flex-wrap gap-1.5">
+                          {schema.optionalFields.map((f) => (
+                            <Badge
+                              key={f}
+                              variant="outline"
+                              className="border-border/70 bg-background text-muted-foreground"
+                            >
+                              {f}
+                            </Badge>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                </div>
               </div>
-
-              {schema.requiredFields.length > 0 && (
-                <div className="flex flex-col gap-1.5">
-                  <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                    Obligatorios
-                  </span>
-                  <div className="flex flex-wrap gap-1.5">
-                    {schema.requiredFields.map((f) => (
-                      <Badge
-                        key={f}
-                        variant="outline"
-                        className="border-border/70 bg-background text-foreground"
-                      >
-                        {f}
-                        <span className="ml-0.5 text-rose-500">*</span>
-                      </Badge>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {schema.optionalFields.length > 0 && (
-                <div className="flex flex-col gap-1.5">
-                  <span className="text-[10px] font-semibold uppercase tracking-wider text-muted-foreground">
-                    Opcionales
-                  </span>
-                  <div className="flex flex-wrap gap-1.5">
-                    {schema.optionalFields.map((f) => (
-                      <Badge
-                        key={f}
-                        variant="outline"
-                        className="border-border/70 bg-background text-muted-foreground"
-                      >
-                        {f}
-                      </Badge>
-                    ))}
-                  </div>
-                </div>
-              )}
             </div>
           )}
 
@@ -745,25 +777,24 @@ export function ExcelImportDialog({
         </div>
 
         {/* ── Footer ── */}
-        <DialogFooter className="border-t border-border/70 bg-muted/15 px-6 py-3.5 sm:gap-2">
+        <DialogFooter className="mx-0 mb-0 flex-col-reverse items-stretch gap-2 border-t border-border/70 bg-muted/15 px-5 py-4 sm:flex-row sm:items-center sm:justify-end sm:gap-2.5 sm:px-8 [&>button]:w-full [&>button]:justify-center sm:[&>button]:w-auto sm:[&>button]:px-4">
           {state.kind === 'idle' && (
             <>
-              <Button variant="outline" onClick={() => onOpenChange(false)}>
+              <p className="hidden text-xs text-muted-foreground sm:mr-auto sm:flex sm:items-center">
+                Seleccioná un archivo para continuar
+              </p>
+              <Button variant="outline" size="lg" onClick={() => onOpenChange(false)}>
                 Cancelar
-              </Button>
-              <Button disabled>
-                <Upload className="mr-1.5 h-4 w-4" />
-                Subir y previsualizar
               </Button>
             </>
           )}
 
           {state.kind === 'selecting' && (
             <>
-              <Button variant="outline" onClick={onReset}>
+              <Button variant="outline" size="lg" onClick={onReset}>
                 Cambiar archivo
               </Button>
-              <Button onClick={onPreview}>
+              <Button size="lg" onClick={onPreview}>
                 <Upload className="mr-1.5 h-4 w-4" />
                 Subir y previsualizar
               </Button>
@@ -771,17 +802,19 @@ export function ExcelImportDialog({
           )}
 
           {state.kind === 'previewing' && (
-            <Button variant="outline" disabled>
+            <Button variant="outline" size="lg" disabled>
+              <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
               Procesando...
             </Button>
           )}
 
           {state.kind === 'preview-result' && (
             <>
-              <Button variant="outline" onClick={onReset}>
+              <Button variant="outline" size="lg" onClick={onReset}>
                 Cancelar
               </Button>
               <Button
+                size="lg"
                 onClick={onConfirm}
                 disabled={state.preview.validCount === 0}
               >
@@ -792,16 +825,20 @@ export function ExcelImportDialog({
           )}
 
           {state.kind === 'confirming' && (
-            <Button disabled>
+            <Button size="lg" disabled>
               <Loader2 className="mr-1.5 h-4 w-4 animate-spin" />
               Importando...
             </Button>
           )}
 
-          {state.kind === 'done' && <Button onClick={onClose}>Cerrar</Button>}
+          {state.kind === 'done' && (
+            <Button size="lg" onClick={onClose}>
+              Cerrar
+            </Button>
+          )}
 
           {state.kind === 'error' && (
-            <Button variant="outline" onClick={onReset}>
+            <Button variant="outline" size="lg" onClick={onReset}>
               Reintentar
             </Button>
           )}
