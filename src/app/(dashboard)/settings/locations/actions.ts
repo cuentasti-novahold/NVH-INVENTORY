@@ -37,12 +37,16 @@ export interface ListLocationResult<T> {
   pageInfo: PageInfo;
 }
 
-async function requireWrite() {
+type AuthCheck =
+  | { ok: true; userId: string }
+  | { ok: false; error: ActionResult<never> };
+
+async function requireWrite(): Promise<AuthCheck> {
   const session = await auth();
-  if (!session?.user) return { error: err('UNAUTHORIZED', 'No autenticado') };
+  if (!session?.user) return { ok: false, error: err('UNAUTHORIZED', 'No autenticado') };
   if (!hasPermission(session.user.role as Role, 'locations', 'create'))
-    return { error: err('FORBIDDEN', 'Sin permiso') };
-  return { session };
+    return { ok: false, error: err('FORBIDDEN', 'Sin permiso') };
+  return { ok: true, userId: session.user.id as string };
 }
 
 /* Helpers */
@@ -131,7 +135,7 @@ export async function createCountryAction(
   input: CreateCountryDTO,
 ): Promise<ActionResult<CountryRow>> {
   const g = await requireWrite();
-  if ('error' in g) return g.error;
+  if (!g.ok) return g.error;
 
   let dto: CreateCountryDTO;
   try {
@@ -161,7 +165,7 @@ export async function updateCountryAction(
   input: UpdateCountryDTO,
 ): Promise<ActionResult<CountryRow>> {
   const g = await requireWrite();
-  if ('error' in g) return g.error;
+  if (!g.ok) return g.error;
 
   let dto: UpdateCountryDTO;
   try {
@@ -190,7 +194,7 @@ export async function updateCountryAction(
 
 export async function deleteCountryAction(id: string): Promise<ActionResult<void>> {
   const g = await requireWrite();
-  if ('error' in g) return g.error;
+  if (!g.ok) return g.error;
 
   const row = await prisma.country.findUnique({
     where: { id },
@@ -267,7 +271,7 @@ export async function createCityAction(
   input: CreateCityDTO,
 ): Promise<ActionResult<CityRow>> {
   const g = await requireWrite();
-  if ('error' in g) return g.error;
+  if (!g.ok) return g.error;
 
   let dto: CreateCityDTO;
   try {
@@ -295,7 +299,7 @@ export async function updateCityAction(
   input: UpdateCityDTO,
 ): Promise<ActionResult<CityRow>> {
   const g = await requireWrite();
-  if ('error' in g) return g.error;
+  if (!g.ok) return g.error;
 
   let dto: UpdateCityDTO;
   try {
@@ -326,7 +330,7 @@ export async function updateCityAction(
 
 export async function deleteCityAction(id: string): Promise<ActionResult<void>> {
   const g = await requireWrite();
-  if ('error' in g) return g.error;
+  if (!g.ok) return g.error;
 
   const row = await prisma.city.findUnique({
     where: { id },
@@ -403,7 +407,7 @@ export async function createLocationAction(
   input: CreateLocationDTO,
 ): Promise<ActionResult<LocationRow>> {
   const g = await requireWrite();
-  if ('error' in g) return g.error;
+  if (!g.ok) return g.error;
 
   let dto: CreateLocationDTO;
   try {
@@ -438,7 +442,7 @@ export async function updateLocationAction(
   input: UpdateLocationDTO,
 ): Promise<ActionResult<LocationRow>> {
   const g = await requireWrite();
-  if ('error' in g) return g.error;
+  if (!g.ok) return g.error;
 
   let dto: UpdateLocationDTO;
   try {
@@ -473,7 +477,7 @@ export async function updateLocationAction(
 
 export async function deleteLocationAction(id: string): Promise<ActionResult<void>> {
   const g = await requireWrite();
-  if ('error' in g) return g.error;
+  if (!g.ok) return g.error;
 
   const row = await prisma.location.findUnique({
     where: { id },
@@ -550,7 +554,7 @@ export async function createBodegaAction(
   input: CreateBodegaDTO,
 ): Promise<ActionResult<BodegaRow>> {
   const g = await requireWrite();
-  if ('error' in g) return g.error;
+  if (!g.ok) return g.error;
 
   let dto: CreateBodegaDTO;
   try {
@@ -581,7 +585,7 @@ export async function updateBodegaAction(
   input: UpdateBodegaDTO,
 ): Promise<ActionResult<BodegaRow>> {
   const g = await requireWrite();
-  if ('error' in g) return g.error;
+  if (!g.ok) return g.error;
 
   let dto: UpdateBodegaDTO;
   try {
@@ -615,7 +619,7 @@ export async function updateBodegaAction(
 
 export async function deleteBodegaAction(id: string): Promise<ActionResult<void>> {
   const g = await requireWrite();
-  if ('error' in g) return g.error;
+  if (!g.ok) return g.error;
 
   const row = await prisma.bodega.findUnique({
     where: { id },
