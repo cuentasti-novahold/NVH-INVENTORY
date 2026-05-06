@@ -239,3 +239,37 @@ export async function getImportTemplateAction(
     fileName: `${config.moduleKey}-template.xlsx`,
   });
 }
+
+// ─── getImportSchemaAction ──────────────────────────────────────────────────
+
+export interface ImportSchemaSummary {
+  requiredFields: string[];
+  optionalFields: string[];
+}
+
+/**
+ * Return required and optional field headers for a module — used by the dialog
+ * to show users which columns the file must contain before they upload.
+ */
+export async function getImportSchemaAction(
+  moduleKey: string,
+): Promise<ActionResult<ImportSchemaSummary>> {
+  const authCheck = await requireImportPermission(moduleKey);
+  if (!authCheck.ok) return authCheck.error;
+
+  let config: ReturnType<typeof getImportConfig>;
+  try {
+    config = getImportConfig(moduleKey);
+  } catch {
+    return err('VALIDATION', 'Módulo no soportado');
+  }
+
+  const requiredFields = config.columns
+    .filter((c) => c.required)
+    .map((c) => c.header);
+  const optionalFields = config.columns
+    .filter((c) => !c.required)
+    .map((c) => c.header);
+
+  return ok({ requiredFields, optionalFields });
+}
