@@ -3,12 +3,13 @@
 import { useMemo, useState } from 'react';
 import { useRouter, usePathname, useSearchParams } from 'next/navigation';
 import type { ColumnDef } from '@tanstack/react-table';
-import { Plus, Pencil, Trash2 } from 'lucide-react';
+import { Plus, Pencil, Trash2, Upload } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { MainDataTable } from '@/components/tables/MainTable';
 import { TablePageToolbar } from '@/components/dashboard/TablePageToolbar';
 import { Show } from '@/components/show/Show.component';
 import { CrudFormDialog } from '@/shared/presentation/components/form-builder/CrudFormDialog';
+import { ExcelImportDialog } from '@/shared/excel-import/components/ExcelImportDialog';
 import { categoriesColumns } from './columns-categories';
 import { buildCategoryFormConfig } from '../forms/category-form.config';
 import { useCategories } from '../hooks/use-categories';
@@ -32,6 +33,7 @@ export function CategoriesTablePage({
   currentQ: string;
 }) {
   const [dialogOpen, setDialogOpen] = useState({ createOpen: false, editOpen: false });
+  const [importOpen, setImportOpen] = useState(false);
   const [editing, setEditing] = useState<CategoryRow | null>(null);
   const { pending, create, update, remove } = useCategories();
 
@@ -104,6 +106,7 @@ export function CategoriesTablePage({
       <TablePageToolbar config={{
         search: { value: currentQ, onChange: (q) => updateParams({ q: q.trim() || null, afterCursor: null, beforeCursor: null }), placeholder: 'Buscar por nombre o prefijo...' },
         actions: canWrite ? [
+          { label: 'Importar', icon: <Upload className="h-3.5 w-3.5" />, variant: 'outline' as const, onClick: () => setImportOpen(true) },
           { label: 'Nueva categoría', icon: <Plus className="h-3.5 w-3.5" />, onClick: () => { setEditing(null); setDialogOpen((prev) => ({ ...prev, createOpen: true })); } },
         ] : undefined,
       }} />
@@ -167,6 +170,16 @@ export function CategoriesTablePage({
             setEditing(null);
           })
         }
+      />
+
+      <ExcelImportDialog
+        open={importOpen}
+        onOpenChange={setImportOpen}
+        moduleKey="categories"
+        title="Importar categorías"
+        onSuccess={() => {
+          router.refresh();
+        }}
       />
     </div>
   );
