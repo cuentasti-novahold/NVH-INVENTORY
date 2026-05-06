@@ -1,12 +1,12 @@
 import type { ExcelImportConfig } from './types';
+import { categoriesImportConfig } from '@/app/(dashboard)/settings/categories/import/config';
 
 // Internal registry — populated by explicit register() calls from module configs.
-// Starts empty in PR1a. Module registrations happen in PR2 (T-13).
 const registry = new Map<string, ExcelImportConfig<unknown>>();
 
 /**
  * Register a module import config.
- * Call once per module, typically at the top of registry.ts after PR2 wires it.
+ * Call once per module at module load time.
  */
 export function register(config: ExcelImportConfig<unknown>): void {
   registry.set(config.moduleKey, config);
@@ -23,3 +23,6 @@ export function getImportConfig(moduleKey: string): ExcelImportConfig<unknown> {
   }
   return cfg;
 }
+
+// ─── Module registrations ──────────────────────────────────────────────────
+register(categoriesImportConfig as ExcelImportConfig<unknown>);
