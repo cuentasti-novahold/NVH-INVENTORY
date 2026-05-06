@@ -19,17 +19,18 @@ allowed-tools: Read, Edit, Write, Glob, Grep, Bash
 
 ```
 ExcelImportDialog (moduleKey)
-  → previewImportAction(moduleKey, formData)
+  → previewImportAction(moduleKey, fileBase64, fileName)
       getConfig → parseExcelFile (xlsx) → validateRows → masterValidations → rowTransformer
       → ImportPreviewResult { validRows, errors, errorFileBase64? }
-  → confirmImportAction(moduleKey, validRows)
-      requireImportPermission → config.handler(rows, userId) → ImportLog.create
+  → confirmImportAction(moduleKey, fileBase64, fileName)
+      requireImportPermission → re-parse + re-validate → config.handler(rows, userId, fileName) → ImportLog.create
       → ImportConfirmResult { totalReceived, created, failed, errors }
 ```
 
 **Invariants**
 - One `ExcelImportConfig` per module, registered once in `registry.ts`
 - Both Server Actions are synchronous (no queue, no polling). For < 5000 rows fits in HTTP timeout.
+- **File travels as base64 string in BOTH actions** — not FormData. Confirm re-parses the file (server-trust principle: never trust client-sent rows). Cost: ~33% transport overhead, acceptable for files < 10 MB.
 - `handler` owns Prisma logic; always returns `ImportConfirmResult`, never throws on row errors
 - Strings in Spanish (project rule)
 - `errors` JSON column in `ImportLog` requires cast `as unknown as Prisma.InputJsonValue`
@@ -39,12 +40,16 @@ ExcelImportDialog (moduleKey)
 ```
 src/shared/excel-import/                    # generic infra (write once)
   types.ts | registry.ts | parser.ts | validator.ts
-  master-validator.ts | error-excel-builder.ts | actions.ts
+  master-validator.ts | error-excel-builder.ts | actions.ts | log.ts
   components/ExcelImportDialog.tsx
 
 src/app/(dashboard)/{module}/import/        # per module
-  config.ts | bulk-create.ts
+  config.ts          # SERVER-ONLY: full config with masterValidations.lookup (Prisma) + handler
+  config.client.ts   # CLIENT-SAFE: columns + displayName + moduleKey only (no Prisma)
+  bulk-create.ts     # the handler — Prisma + writeImportLog
 ```
+
+**Why split `config.ts` / `config.client.ts`**: the dialog is a Client Component. If it imports the full config (which references Prisma via `masterValidations.lookup`), Prisma client gets bundled into the browser → build failure. The client-safe slice only exposes what the dialog needs (column headers for template, displayName for the title).
 
 ## Step 1 — `config.ts`
 
@@ -114,7 +119,11 @@ export function getImportConfig(moduleKey: string) {
 ### Simple (single table, row-isolated errors)
 
 ```typescript
-export async function bulkCreateXxx(rows: XxxImportRow[], userId: string): Promise<ImportConfirmResult> {
+export async function bulkCreateXxx(
+  rows: XxxImportRow[],
+  userId: string,
+  fileName: string,
+): Promise<ImportConfirmResult> {
   const result: ImportConfirmResult = { totalReceived: rows.length, created: 0, failed: 0, errors: [] };
 
   for (let i = 0; i < rows.length; i++) {
@@ -131,7 +140,7 @@ export async function bulkCreateXxx(rows: XxxImportRow[], userId: string): Promi
     }
   }
 
-  await writeImportLog('Xxx', result, userId);
+  await writeImportLog('Xxx', result, userId, fileName);
   return result;
 }
 ```
@@ -141,7 +150,11 @@ export async function bulkCreateXxx(rows: XxxImportRow[], userId: string): Promi
 ```typescript
 const BATCH = 100;
 
-export async function bulkCreateXxx(rows: GroupCreateXxxRow[], userId: string): Promise<ImportConfirmResult> {
+export async function bulkCreateXxx(
+  rows: GroupCreateXxxRow[],
+  userId: string,
+  fileName: string,
+): Promise<ImportConfirmResult> {
   let created = 0;
   const errors: ImportConfirmResult['errors'] = [];
 
@@ -170,7 +183,7 @@ export async function bulkCreateXxx(rows: GroupCreateXxxRow[], userId: string): 
   }
 
   const result = { totalReceived: rows.length, created, failed: errors.length, errors };
-  await writeImportLog('Xxx', result, userId);
+  await writeImportLog('Xxx', result, userId, fileName);
   return result;
 }
 ```
@@ -199,11 +212,13 @@ The dialog handles: template download, file upload, preview call, error file dow
 `src/shared/excel-import/actions.ts` exports:
 
 ```typescript
-previewImportAction(moduleKey: string, formData: FormData): Promise<ActionResult<ImportPreviewResult>>
-confirmImportAction(moduleKey: string, rows: Record<string, unknown>[]): Promise<ActionResult<ImportConfirmResult>>
+previewImportAction(moduleKey: string, fileBase64: string, fileName: string): Promise<ActionResult<ImportPreviewResult>>
+confirmImportAction(moduleKey: string, fileBase64: string, fileName: string): Promise<ActionResult<ImportConfirmResult>>
 ```
 
 Both use `requireImportPermission(moduleKey)` which calls `hasPermission(role, moduleKey, 'create')` from `@/lib/permissions` (`moduleKey` doubles as permission resource).
+
+`confirm` re-parses + re-validates the file from base64 — it does NOT trust validRows from the client. This is intentional (server-trust principle). The handler only ever receives rows that the server itself has validated.
 
 ## Interfaces
 
@@ -226,7 +241,7 @@ interface ExcelImportConfig<TRow = Record<string, unknown>> {
   maxRows?: number; columns: ColumnDef[];
   masterValidations?: MasterValidation[];
   rowTransformer?: (flat: Record<string, unknown>) => TRow;
-  handler: (rows: TRow[], userId: string) => Promise<ImportConfirmResult>;
+  handler: (rows: TRow[], userId: string, fileName: string) => Promise<ImportConfirmResult>;
 }
 
 interface RowError { row: number; field?: string; message: string }
@@ -246,7 +261,8 @@ interface ImportConfirmResult {
 ## Checklist — new module
 
 Per module:
-- [ ] `import/config.ts` with `moduleKey`, `sheetName`, `columns`, `handler`
+- [ ] `import/config.ts` (server) with `moduleKey`, `sheetName`, `columns`, `masterValidations`, `rowTransformer`, `handler`
+- [ ] `import/config.client.ts` exporting only `{ moduleKey, displayName, columns }` for the dialog
 - [ ] `import/bulk-create.ts` returns `ImportConfirmResult`, writes `ImportLog`, never throws
 - [ ] Add import line in `registry.ts`
 - [ ] `<ExcelImportDialog moduleKey="..." />` in TablePage with `onSuccess`
