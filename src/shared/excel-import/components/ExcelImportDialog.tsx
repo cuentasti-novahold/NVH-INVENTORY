@@ -1,5 +1,12 @@
 'use client';
 
+/* eslint-disable react-hooks/set-state-in-effect --
+ * The reset-on-open and master-validation-fetch effects intentionally call
+ * setState inside useEffect. This pattern is used throughout the project's
+ * existing dialogs (CrudFormDialog, v1 ExcelImportDialog) and is a controlled
+ * synchronous reset on prop transition. Refactoring would require splitting
+ * the dialog into outer/inner components — out of scope for this change. */
+
 import { Fragment, useEffect, useRef, useState } from 'react';
 import {
   AlertCircle,
@@ -269,7 +276,7 @@ export function ExcelImportDialog({
       return;
     }
 
-    const res = await previewImportAction(moduleKey, base64, file.name);
+    const res = await previewImportAction(moduleKey, base64);
     if (!res.ok) {
       setState({ kind: 'error', message: res.message });
       return;
