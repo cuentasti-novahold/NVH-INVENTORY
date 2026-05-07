@@ -119,14 +119,14 @@ Depends on Phase 1 (PR1a merged). Server Actions + Client dialog.
 
 Depends on Phase 2 (PR1b merged). Implements the first v2 consumer.
 
-- [ ] T-10 — CREATE `src/app/(dashboard)/settings/categories/import/config.client.ts` (~15 LOC)
+- [x] T-10 — CREATE `src/app/(dashboard)/settings/categories/import/config.client.ts` (~15 LOC)
   - Exports `{ moduleKey: 'categories', displayName: 'Categorías', columns }` — client-safe only (no Prisma)
   - `columns` = the 5 column defs from design §4 (Nombre, Prefijo, Descripción, Vida útil, Categoría padre)
   - Design §5 (config split rationale). Spec: REQ-10 (five columns, no fieldConfig)
   - Accept: no Prisma import; importable in a Client Component without build error
   - Dependencies: T-01
 
-- [ ] T-11 — CREATE `src/app/(dashboard)/settings/categories/import/config.ts` (~45 LOC)
+- [x] T-11 — CREATE `src/app/(dashboard)/settings/categories/import/config.ts` (~45 LOC)
   - Server-only. Exports `categoriesImportConfig: ExcelImportConfig<CategoryImportRow>`
   - `moduleKey: 'categories'`, `sheetName: 'Categorías'`, `maxRows: 5000`, full 5-column defs
   - `masterValidations`: parentName lookup via `prisma.category.findMany({ where: { name: { in: values } } })`
@@ -136,7 +136,7 @@ Depends on Phase 2 (PR1b merged). Implements the first v2 consumer.
   - Accept: parentName not found → row error "Categoría padre no existe"; fieldConfig excluded from columns
   - Dependencies: T-01, T-12
 
-- [ ] T-12 — CREATE `src/app/(dashboard)/settings/categories/import/bulk-create.ts` (~45 LOC)
+- [x] T-12 — CREATE `src/app/(dashboard)/settings/categories/import/bulk-create.ts` (~45 LOC)
   - Exports `bulkCreateCategories(rows: CategoryImportRow[], userId: string): Promise<ImportConfirmResult>`
   - Pre-resolves parentName → id in ONE query before loop; row-isolated try/catch on `prisma.category.create`
   - Maps Prisma P2002 to Spanish per-row error message; calls `writeImportLog('Category', result, userId, fileName)` before return
@@ -144,14 +144,14 @@ Depends on Phase 2 (PR1b merged). Implements the first v2 consumer.
   - Accept: never throws; P2002 appears in result.errors; ImportLog written exactly once per invocation
   - Dependencies: T-01, T-03
 
-- [ ] T-13 — MODIFY `src/shared/excel-import/registry.ts` → add categories registration (~3 LOC added)
+- [x] T-13 — MODIFY `src/shared/excel-import/registry.ts` → add categories registration (~3 LOC added)
   - Add `import { categoriesImportConfig } from '@/app/(dashboard)/settings/categories/import/config'`
   - Add `registry.set(categoriesImportConfig.moduleKey, categoriesImportConfig as ExcelImportConfig<unknown>)`
   - Design §2 (registry, explicit imports). Spec: REQ-02 (module config registered by moduleKey)
   - Accept: `getImportConfig('categories')` returns config; no other registry callers affected
   - Dependencies: T-02, T-11
 
-- [ ] T-14 — MODIFY `src/app/(dashboard)/settings/categories/presentation/components/CategoriesTablePage.tsx` (~25 LOC added)
+- [x] T-14 — MODIFY `src/app/(dashboard)/settings/categories/presentation/components/CategoriesTablePage.tsx` (~25 LOC added)
   - Add `useState` for `importOpen`; add import button (Lucide `Upload` icon, Spanish label "Importar Excel", `canWrite` guard)
   - Mount `<ExcelImportDialog open={importOpen} onOpenChange={setImportOpen} moduleKey="categories" title="Importar categorías" onSuccess={() => router.refresh()} />`
   - Import `ExcelImportDialog` from `@/shared/excel-import/components/ExcelImportDialog` (v2 path, NOT v1)
@@ -166,7 +166,7 @@ Depends on Phase 2 (PR1b merged). Implements the first v2 consumer.
 
 Manual smoke tests. No code produced — acceptance gate only.
 
-- [ ] T-15 — Run `pnpm lint` + `pnpm build` on each PR branch independently
+- [x] T-15 — Run `pnpm lint` + `pnpm build` on each PR branch independently
   - PR1a: all 7 new files pass lint/typecheck with no Prisma in client paths
   - PR1b: actions.ts + dialog compile; dialog does NOT import from `config.ts` (only `config.client.ts`)
   - PR2: `pnpm build` succeeds; no "Prisma bundled in browser" error

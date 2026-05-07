@@ -11,7 +11,7 @@ import { validateRows } from './validator';
 import { runMasterValidations } from './master-validator';
 import { buildErrorExcel } from './error-excel-builder';
 import { writeImportLog } from './log';
-import type { ImportPreviewResult, ImportConfirmResult } from './types';
+import type { ImportPreviewResult, ImportConfirmResult, RowError } from './types';
 
 // ─── Auth helper ───────────────────────────────────────────────────────────
 
@@ -85,7 +85,6 @@ async function parseAndValidate(
 export async function previewImportAction(
   moduleKey: string,
   fileBase64: string,
-  fileName: string,
 ): Promise<ActionResult<ImportPreviewResult>> {
   // 1. Auth
   const authCheck = await requireImportPermission(moduleKey);
@@ -153,10 +152,17 @@ export async function confirmImportAction(
   const { rows, allErrors } = result;
 
   // 3. Filter valid rows (exclude any row that has master or type errors)
+  // Track parallel row numbers so handler errors can be mapped back to Excel rows.
   const errorRowNums = new Set(allErrors.map((e) => e.row));
-  const validRowsForHandler = result.validRows.filter(
-    (_, i) => !errorRowNums.has(result.rowNumbers[i]!),
-  );
+  const validRowsForHandler: typeof result.validRows = [];
+  const validRowNumbers: number[] = [];
+  for (let i = 0; i < result.validRows.length; i++) {
+    const rowNum = result.rowNumbers[i]!;
+    if (!errorRowNums.has(rowNum)) {
+      validRowsForHandler.push(result.validRows[i]!);
+      validRowNumbers.push(rowNum);
+    }
+  }
 
   // 4. Apply transformer
   const transformedRows = config.rowTransformer
@@ -190,6 +196,23 @@ export async function confirmImportAction(
   // 6. Delegate to module handler (handler owns ImportLog when it runs)
   try {
     const handlerResult = await config.handler(transformedRows, userId, fileName);
+
+    // 7. If handler reported per-row errors (P2002, etc.), build the error file
+    // so the dialog can offer it for download. Map handler index → Excel row.
+    if (handlerResult.errors.length > 0 && !handlerResult.errorFileBase64) {
+      const handlerRowErrors: RowError[] = handlerResult.errors.map((e) => ({
+        row: validRowNumbers[e.index] ?? -1,
+        message: e.error,
+      }));
+      const errorFileBase64 = buildErrorExcel(
+        rows,
+        handlerRowErrors,
+        config.columns,
+        config.sheetName,
+      );
+      return ok({ ...handlerResult, errorFileBase64 });
+    }
+
     return ok(handlerResult);
   } catch (e) {
     return err('UNKNOWN', e instanceof Error ? e.message : 'Error al importar');

@@ -180,7 +180,7 @@ The system MUST enforce the following constraints before parsing: file extension
 
 ### REQ-10 — Categories import columns
 
-The categories import MUST accept exactly five columns: `Nombre` (string, required, max 100), `Prefijo` (string, required, max 10), `Descripción` (string, optional, max 255), `Categoría padre` (string, optional), `Vida útil años` (number, optional). `fieldConfig` MUST NOT be a column in the import template.
+The categories import MUST accept exactly five columns: `Nombre` (string, required, max 100), `Prefijo` (string, required, max 10), `Descripción` (string, optional, max 500), `Categoría padre` (string, optional), `Vida útil años` (number, optional). `fieldConfig` MUST NOT be a column in the import template.
 
 #### Scenario: Valid five-column categories file
 
