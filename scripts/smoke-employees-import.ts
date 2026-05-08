@@ -2,12 +2,26 @@
 // Run with: pnpm tsx scripts/smoke-employees-import.ts
 // Output:   tmp/empleados-smoke.xlsx  (sheet "Empleados", 6 rows mixing happy + error cases)
 
-import { PrismaClient } from '@prisma/client';
+import 'dotenv/config';
+import { PrismaClient } from '../src/generated/prisma/client';
+import { PrismaMariaDb } from '@prisma/adapter-mariadb';
 import * as XLSX from 'xlsx';
 import { writeFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 
-const prisma = new PrismaClient();
+function createClient() {
+  const url = new URL(process.env.DATABASE_URL ?? 'mysql://root:root@localhost:3306/novahold');
+  const adapter = new PrismaMariaDb({
+    host: url.hostname,
+    port: Number(url.port) || 3306,
+    user: url.username,
+    password: url.password,
+    database: url.pathname.slice(1),
+  });
+  return new PrismaClient({ adapter });
+}
+
+const prisma = createClient();
 
 async function main() {
   const [dept, city, loc, existingEmployee] = await Promise.all([

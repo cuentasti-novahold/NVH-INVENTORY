@@ -120,3 +120,4 @@ npx prisma migrate dev --name <name>    # new migration
 npx prisma db seed                      # seed with CSV data
 npx prisma studio                      # DB GUI
 ```
+`
