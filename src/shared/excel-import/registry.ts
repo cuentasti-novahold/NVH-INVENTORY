@@ -1,5 +1,6 @@
 import type { ExcelImportConfig } from './types';
 import { categoriesImportConfig } from '@/app/(dashboard)/settings/categories/import/config';
+import { employeesImportConfig } from '@/app/(dashboard)/employees/import/config';
 
 // Internal registry — populated by explicit register() calls from module configs.
 const registry = new Map<string, ExcelImportConfig<unknown>>();
@@ -26,3 +27,4 @@ export function getImportConfig(moduleKey: string): ExcelImportConfig<unknown> {
 
 // ─── Module registrations ──────────────────────────────────────────────────
 register(categoriesImportConfig as ExcelImportConfig<unknown>);
+register(employeesImportConfig as ExcelImportConfig<unknown>);

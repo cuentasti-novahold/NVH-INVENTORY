@@ -22,7 +22,7 @@
 
 All tasks are sequential. Each task depends on the prior unless noted. Apply executes in T-NN order.
 
-- [ ] **T-01** — CREATE `src/app/(dashboard)/employees/import/config.client.ts` (~45 LOC)
+- [x] **T-01** — CREATE `src/app/(dashboard)/employees/import/config.client.ts` (~45 LOC)
   - **What**: 8-column definition file — client-safe, no Prisma imports
   - **Exports**: `employeesImportColumns: ColumnDef[]`, `employeesImportDisplayName = 'Empleados'`, `employeesImportModuleKey = 'employees'`
   - **Columns** (key → header → type → required → maxLength → width → example):
@@ -39,7 +39,7 @@ All tasks are sequential. Each task depends on the prior unless noted. Apply exe
   - **Accept**: file imports cleanly in a Client Component; no `prisma` import present; `rg "from.*prisma"` returns 0 in this file
   - **Dependencies**: none
 
-- [ ] **T-02** — CREATE `src/app/(dashboard)/employees/import/bulk-create.ts` (~90 LOC)
+- [x] **T-02** — CREATE `src/app/(dashboard)/employees/import/bulk-create.ts` (~90 LOC)
   - **What**: handler that writes employees to DB — 3 parallel FK pre-resolve maps, row-isolated loop, inline P2002 detection
   - **Signature**: `bulkCreateEmployees(rows: EmployeeImportRow[], userId: string, fileName: string): Promise<ImportConfirmResult>`
   - **Steps**:
@@ -57,7 +57,7 @@ All tasks are sequential. Each task depends on the prior unless noted. Apply exe
   - **Accept**: never throws; P2002 on email → `'Correo duplicado'` in result.errors; `ImportLog` written once per invocation with real `fileName`; `successRows + errorRows === totalReceived`
   - **Dependencies**: T-01
 
-- [ ] **T-03** — CREATE `src/app/(dashboard)/employees/import/config.ts` (~70 LOC)
+- [x] **T-03** — CREATE `src/app/(dashboard)/employees/import/config.ts` (~70 LOC)
   - **What**: server-only config wiring — masterValidations, rowTransformer, handler reference
   - **Exports**: `employeesImportConfig: ExcelImportConfig<EmployeeImportRow>`
   - **Config fields**:
@@ -75,7 +75,7 @@ All tasks are sequential. Each task depends on the prior unless noted. Apply exe
   - **Accept**: `getImportConfig('employees')` returns this config after T-04; `departmentName: 'Marketnig'` → error `'Departamento no existe'`; empty `departmentName` → `departmentId: null`, no error
   - **Dependencies**: T-01, T-02
 
-- [ ] **T-04** — MODIFY `src/shared/excel-import/registry.ts` (~+3 LOC)
+- [x] **T-04** — MODIFY `src/shared/excel-import/registry.ts` (~+3 LOC)
   - **What**: register employees config so `getImportConfig('employees')` resolves at runtime
   - **Changes**:
     - Add import: `import { employeesImportConfig } from '@/app/(dashboard)/employees/import/config';`
@@ -86,7 +86,7 @@ All tasks are sequential. Each task depends on the prior unless noted. Apply exe
   - **Accept**: `getImportConfig('employees')` no longer throws; categories registration untouched
   - **Dependencies**: T-03
 
-- [ ] **T-05** — MODIFY `src/app/(dashboard)/employees/presentation/components/EmployeesTablePage.tsx` (~+5 / -20 net)
+- [x] **T-05** — MODIFY `src/app/(dashboard)/employees/presentation/components/EmployeesTablePage.tsx` (~+5 / -20 net)
   - **What**: swap v1 dialog mount for v2 dialog mount
   - **Remove imports**:
     - `import { ExcelImportDialog } from '@/shared/ui/components/ExcelImportDialog';` (v1 path)
@@ -111,7 +111,7 @@ All tasks are sequential. Each task depends on the prior unless noted. Apply exe
   - **Accept**: v2 dialog mounts with `moduleKey="employees"`; no `parseRow` / `action` props present; v1 `ExcelImportDialog` import path removed
   - **Dependencies**: T-04
 
-- [ ] **T-06** — MODIFY `src/app/(dashboard)/employees/presentation/dto/employee.dto.ts` (~-9 LOC)
+- [x] **T-06** — MODIFY `src/app/(dashboard)/employees/presentation/dto/employee.dto.ts` (~-9 LOC)
   - **What**: delete `EmployeeImportRow` interface — exclusive to v1, zero callers after T-05
   - **Before deleting**: run `rg "EmployeeImportRow" src/` to confirm only 0–1 results (the DTO declaration itself); if any other file imports it, STOP and report
   - **Delete**: the `EmployeeImportRow` export interface (lines 32–41 approx.) — keep `EmployeeRow`, `CreateEmployeeDTO`, `UpdateEmployeeDTO`
@@ -120,7 +120,7 @@ All tasks are sequential. Each task depends on the prior unless noted. Apply exe
   - **Accept**: `rg "EmployeeImportRow" src/` → 0 results; file compiles; other DTO exports unchanged
   - **Dependencies**: T-05
 
-- [ ] **T-07** — MODIFY `src/app/(dashboard)/employees/actions.ts` (~-160 LOC)
+- [x] **T-07** — MODIFY `src/app/(dashboard)/employees/actions.ts` (~-160 LOC)
   - **What**: delete `importEmployeesAction` function + `toBool` helper + their exclusive imports
   - **Step 1 — identify shared imports** (run BEFORE editing):
     - `rg "Prisma" src/app/\(dashboard\)/employees/actions.ts` — check if `Prisma` type used outside deleted code
