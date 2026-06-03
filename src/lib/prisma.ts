@@ -9,6 +9,9 @@ function createAdapter() {
     user: url.username,
     password: url.password,
     database: url.pathname.slice(1),
+    ssl: { rejectUnauthorized: false },
+    connectionLimit: 3,
+    idleTimeout: 10,
   });
 }
 

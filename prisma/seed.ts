@@ -10,6 +10,7 @@ function createClient() {
     user: url.username,
     password: url.password,
     database: url.pathname.slice(1),
+    ssl: { rejectUnauthorized: false },
   });
   return new PrismaClient({ adapter });
 }
