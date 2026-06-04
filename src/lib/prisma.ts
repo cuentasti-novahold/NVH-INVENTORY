@@ -9,7 +9,12 @@ function createAdapter() {
     user: url.username,
     password: url.password,
     database: url.pathname.slice(1),
-    ssl: { rejectUnauthorized: false },
+    ssl: {
+      rejectUnauthorized: true,
+      ca:   process.env.DB_SSL_CA,
+      cert: process.env.DB_SSL_CERT,
+      key:  process.env.DB_SSL_KEY,
+    },
     connectionLimit: 3,
     idleTimeout: 10,
   });
