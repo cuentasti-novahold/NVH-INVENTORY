@@ -3,17 +3,20 @@
 import { useMemo, useState } from 'react';
 import { useRouter, usePathname, useSearchParams } from 'next/navigation';
 import type { ColumnDef } from '@tanstack/react-table';
-import { Plus, Pencil, Trash2, Wrench } from 'lucide-react';
+import { Plus, Pencil, Trash2, Wrench, ClipboardList, CheckCircle2, Clock, AlertTriangle } from 'lucide-react';
+import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { MainDataTable } from '@/components/tables/MainTable';
 import { TablePageToolbar } from '@/components/dashboard/TablePageToolbar';
 import { Show } from '@/components/show/Show.component';
+import { KpiCard } from '@/app/(dashboard)/analytics/presentation/components/KpiCard';
 import { maintenanceColumns } from './columns-maintenance';
 import { CrudFormDialog } from '@/shared/presentation/components/form-builder/CrudFormDialog';
 import { buildMaintenanceFormConfig } from '../forms/maintenance-form.config';
 import { useMaintenances } from '../hooks/use-maintenances';
-import type { MaintenanceRow, MaintenanceType, CreateMaintenanceDTO, UpdateMaintenanceDTO } from '../dto/maintenance.dto';
+import type { MaintenanceRow, MaintenanceType, CreateMaintenanceDTO, UpdateMaintenanceDTO, MaintenanceStats, PendingMaintenanceRow } from '../dto/maintenance.dto';
 import type { ListMaintenancesResult } from '../../actions';
+import { KpiDetailModal, type KpiModalType } from './KpiDetailModal';
 
 type TypeFilter = MaintenanceType | 'all';
 
@@ -22,6 +25,8 @@ interface Props {
   canWrite: boolean;
   canDelete: boolean;
   currentType: TypeFilter;
+  stats?: MaintenanceStats | null;
+  pendingRows?: PendingMaintenanceRow[];
 }
 
 const TYPE_FILTERS: { label: string; value: TypeFilter }[] = [
@@ -37,9 +42,12 @@ export function MaintenanceTablePage({
   canWrite,
   canDelete,
   currentType,
+  stats,
+  pendingRows,
 }: Props) {
   const [createOpen, setCreateOpen] = useState(false);
   const [editRow, setEditRow] = useState<MaintenanceRow | null>(null);
+  const [activeModal, setActiveModal] = useState<KpiModalType>(null);
   const formConfig = buildMaintenanceFormConfig();
   const router = useRouter();
   const pathname = usePathname();
@@ -117,6 +125,49 @@ export function MaintenanceTablePage({
           </p>
         </div>
       </div>
+
+      {stats && (
+        <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
+          <KpiCard
+            label="Total registros"
+            value={stats.totalRecords}
+            icon={ClipboardList}
+            variant="neutral"
+          />
+          <KpiCard
+            label="Al día"
+            value={stats.upToDate}
+            icon={CheckCircle2}
+            variant="success"
+          />
+          <button
+            type="button"
+            className="text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-xl"
+            onClick={() => setActiveModal('upcoming')}
+          >
+            <KpiCard
+              label="Próximos 7 días"
+              value={stats.upcoming}
+              icon={Clock}
+              variant="warning"
+              className="cursor-pointer transition-all hover:shadow-lg hover:-translate-y-px"
+            />
+          </button>
+          <button
+            type="button"
+            className="text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-xl"
+            onClick={() => setActiveModal('overdue')}
+          >
+            <KpiCard
+              label="Atrasados"
+              value={stats.overdue}
+              icon={AlertTriangle}
+              variant="primary"
+              className="cursor-pointer transition-all hover:shadow-lg hover:-translate-y-px"
+            />
+          </button>
+        </div>
+      )}
 
       <TablePageToolbar
         config={{
@@ -225,6 +276,15 @@ export function MaintenanceTablePage({
               () => setEditRow(null),
             )
           }
+        />
+      )}
+
+      {/* KPI detail modal */}
+      {stats && (
+        <KpiDetailModal
+          type={activeModal}
+          pendingRows={pendingRows ?? []}
+          onClose={() => setActiveModal(null)}
         />
       )}
     </div>

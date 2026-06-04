@@ -23,3 +23,20 @@ export interface CreateMaintenanceDTO {
 }
 
 export type UpdateMaintenanceDTO = Partial<Omit<CreateMaintenanceDTO, 'assetId'>>;
+
+export interface MaintenanceStats {
+  totalRecords: number;
+  upToDate: number;
+  upcoming: number;
+  overdue: number;
+}
+
+export interface PendingMaintenanceRow {
+  assetId: string;
+  assetCode: string;
+  assetLabel: string;
+  lastRevision: string | null;
+  nextReview: string | null;
+  daysUntil: number | null;
+  status: 'overdue' | 'upcoming' | 'no-record';
+}

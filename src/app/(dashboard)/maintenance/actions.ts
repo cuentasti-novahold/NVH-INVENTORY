@@ -7,7 +7,7 @@ import { hasPermission } from '@/lib/permissions';
 import { ok, err, type ActionResult } from '@/shared/types/action-result';
 import { createMaintenanceSchema, updateMaintenanceSchema } from './presentation/schemas/maintenance.schema';
 import { toMaintenanceRow, maintenanceInclude } from './presentation/mappers/maintenance.mapper';
-import type { MaintenanceRow, CreateMaintenanceDTO, UpdateMaintenanceDTO } from './presentation/dto/maintenance.dto';
+import type { MaintenanceRow, CreateMaintenanceDTO, UpdateMaintenanceDTO, MaintenanceStats, PendingMaintenanceRow } from './presentation/dto/maintenance.dto';
 import type { PageInfo } from '@/shared/types/pagination';
 
 type Role = Parameters<typeof hasPermission>[0];
@@ -252,4 +252,102 @@ export async function deleteMaintenanceAction(id: string): Promise<ActionResult<
     if (isP2025(e)) return err('NOT_FOUND', 'Mantenimiento no encontrado');
     return err('UNKNOWN', 'Error al eliminar mantenimiento');
   }
+}
+
+// ─── Stats ─────────────────────────────────────────────────────────────────
+
+export async function getMaintenanceStatsAction(): Promise<ActionResult<MaintenanceStats>> {
+  const session = await auth();
+  if (!session?.user || !hasPermission(session.user.role as Role, 'maintenance', 'read'))
+    return err('FORBIDDEN', 'Sin permiso');
+
+  const now = new Date();
+  const sevenDaysFromNow = new Date(now.getTime() + 7 * 86_400_000);
+
+  const [totalRecords, overdueItems, upcomingItems, allActiveAssets] = await Promise.all([
+    prisma.maintenance.count(),
+    // Assets where latest maintenance has nextReview < today
+    prisma.maintenance.groupBy({
+      by: ['assetId'],
+      where: { nextReview: { lt: now } },
+      _max: { nextReview: true },
+    }),
+    // Assets where latest maintenance has nextReview in [today, today+7]
+    prisma.maintenance.groupBy({
+      by: ['assetId'],
+      where: { nextReview: { gte: now, lte: sevenDaysFromNow } },
+      _max: { nextReview: true },
+    }),
+    prisma.asset.count({ where: { isActive: true } }),
+  ]);
+
+  const overdueAssetIds = new Set(overdueItems.map((r) => r.assetId));
+  const upcomingAssetIds = new Set(upcomingItems.map((r) => r.assetId));
+  // Remove from overdue those that also appear in upcoming (upcoming takes priority)
+  upcomingAssetIds.forEach((id) => overdueAssetIds.delete(id));
+
+  const overdue = overdueAssetIds.size;
+  const upcoming = upcomingAssetIds.size;
+  const upToDate = Math.max(0, allActiveAssets - overdue - upcoming);
+
+  return ok({ totalRecords, upToDate, upcoming, overdue });
+}
+
+// ─── Pending ───────────────────────────────────────────────────────────────
+
+export async function getPendingMaintenanceAction(): Promise<ActionResult<PendingMaintenanceRow[]>> {
+  const session = await auth();
+  if (!session?.user || !hasPermission(session.user.role as Role, 'maintenance', 'read'))
+    return err('FORBIDDEN', 'Sin permiso');
+
+  const now = new Date();
+  const sevenDaysFromNow = new Date(now.getTime() + 7 * 86_400_000);
+
+  // Get maintenances with nextReview set (past or upcoming 7 days), latest per asset
+  const records = await prisma.maintenance.findMany({
+    where: {
+      nextReview: { lte: sevenDaysFromNow },
+      asset: { isActive: true },
+    },
+    orderBy: { nextReview: 'asc' },
+    include: {
+      asset: { select: { assetCode: true, brand: true, model: true, lastRevision: true } },
+    },
+  });
+
+  // Deduplicate: keep only the most relevant record per asset
+  const seen = new Map<string, (typeof records)[0]>();
+  for (const r of records) {
+    const existing = seen.get(r.assetId);
+    if (!existing || (r.nextReview && existing.nextReview && r.nextReview < existing.nextReview)) {
+      seen.set(r.assetId, r);
+    }
+  }
+
+  const rows: PendingMaintenanceRow[] = Array.from(seen.values()).map((r) => {
+    const daysUntil = r.nextReview
+      ? Math.round((r.nextReview.getTime() - now.getTime()) / 86_400_000)
+      : null;
+    const status: PendingMaintenanceRow['status'] =
+      daysUntil === null ? 'no-record' : daysUntil < 0 ? 'overdue' : 'upcoming';
+    const assetLabel = [r.asset.brand, r.asset.model].filter(Boolean).join(' ') || r.asset.assetCode;
+    return {
+      assetId: r.assetId,
+      assetCode: r.asset.assetCode,
+      assetLabel,
+      lastRevision: r.asset.lastRevision?.toISOString() ?? null,
+      nextReview: r.nextReview?.toISOString() ?? null,
+      daysUntil,
+      status,
+    };
+  });
+
+  // Sort: overdue first (most negative daysUntil), then upcoming by closest
+  rows.sort((a, b) => {
+    if (a.daysUntil === null) return 1;
+    if (b.daysUntil === null) return -1;
+    return a.daysUntil - b.daysUntil;
+  });
+
+  return ok(rows.slice(0, 10));
 }

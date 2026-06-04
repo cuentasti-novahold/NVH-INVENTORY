@@ -1,7 +1,7 @@
 import { auth } from '@/auth';
 import { redirect } from 'next/navigation';
 import { hasPermission } from '@/lib/permissions';
-import { listMaintenancesAction } from './actions';
+import { listMaintenancesAction, getMaintenanceStatsAction, getPendingMaintenanceAction } from './actions';
 import { MaintenanceTablePage } from './presentation/components/MaintenanceTablePage';
 import type { MaintenanceType } from './presentation/dto/maintenance.dto';
 
@@ -35,17 +35,24 @@ export default async function MaintenancePage({
   ) as TypeFilter;
   const assetId = sp.assetId?.trim() ?? '';
 
-  const result = await listMaintenancesAction({
-    pageSize,
-    afterCursor,
-    beforeCursor,
-    type: currentType === 'all' ? undefined : currentType,
-    assetId: assetId || undefined,
-  });
+  const [listResult, statsResult, pendingResult] = await Promise.all([
+    listMaintenancesAction({
+      pageSize,
+      afterCursor,
+      beforeCursor,
+      type: currentType === 'all' ? undefined : currentType,
+      assetId: assetId || undefined,
+    }),
+    getMaintenanceStatsAction(),
+    getPendingMaintenanceAction(),
+  ]);
 
-  const initialData = result.ok
-    ? result.data
+  const initialData = listResult.ok
+    ? listResult.data
     : { rows: [], rowCount: 0, pageInfo: { hasNextPage: false, hasPreviousPage: false, startCursor: undefined, endCursor: undefined, limit: pageSize } };
+
+  const stats = statsResult.ok ? statsResult.data : null;
+  const pendingRows = pendingResult.ok ? pendingResult.data : [];
 
   const canWrite = hasPermission(session.user.role as Role, 'maintenance', 'create');
   const canDelete = hasPermission(session.user.role as Role, 'maintenance', 'delete');
@@ -56,6 +63,8 @@ export default async function MaintenancePage({
       canWrite={canWrite}
       canDelete={canDelete}
       currentType={currentType}
+      stats={stats}
+      pendingRows={pendingRows}
     />
   );
 }
