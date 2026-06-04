@@ -365,3 +365,88 @@ export async function deactivateEmployeeAction(id: string): Promise<ActionResult
   }
 }
 
+// ─── Assignment Report (PDF) ───────────────────────────────────────────────
+
+export interface AssignmentReportItem {
+  id: string;
+  assetCode: string;
+  categoryName: string;
+  brand: string | null;
+  model: string | null;
+  serialNumber: string | null;
+  generalStatus: string;
+  assignedAt: string;
+  deliveredByName: string | null;
+  notes: string | null;
+}
+
+export interface EmployeeAssignmentReportData {
+  employee: {
+    id: string;
+    fullName: string;
+    email: string;
+    phone: string | null;
+    position: string | null;
+    departmentName: string | null;
+    locationName: string | null;
+    cityName: string | null;
+  };
+  assignments: AssignmentReportItem[];
+  generatedAt: string;
+}
+
+export async function getEmployeeAssignmentReportAction(
+  employeeId: string,
+): Promise<ActionResult<EmployeeAssignmentReportData>> {
+  const session = await auth();
+  if (!session?.user || !hasPermission(session.user.role as Role, 'employees', 'read'))
+    return err('FORBIDDEN', 'Sin permiso');
+
+  const [employee, assignments] = await Promise.all([
+    prisma.employee.findUnique({
+      where: { id: employeeId },
+      include: {
+        department: { select: { name: true } },
+        city: { select: { name: true } },
+        location: { select: { name: true } },
+      },
+    }),
+    prisma.assignment.findMany({
+      where: { employeeId, status: 'ACTIVE' },
+      orderBy: { assignedAt: 'asc' },
+      include: {
+        asset: { include: { category: { select: { name: true } } } },
+        deliveredBy: { select: { name: true } },
+      },
+    }),
+  ]);
+
+  if (!employee) return err('NOT_FOUND', 'Empleado no encontrado');
+
+  return ok({
+    employee: {
+      id: employee.id,
+      fullName: employee.fullName,
+      email: employee.email,
+      phone: employee.phone ?? null,
+      position: employee.position ?? null,
+      departmentName: employee.department?.name ?? null,
+      locationName: employee.location?.name ?? null,
+      cityName: employee.city?.name ?? null,
+    },
+    assignments: assignments.map((a) => ({
+      id: a.id,
+      assetCode: a.asset.assetCode,
+      categoryName: a.asset.category.name,
+      brand: a.asset.brand ?? null,
+      model: a.asset.model ?? null,
+      serialNumber: a.asset.serialNumber ?? null,
+      generalStatus: a.asset.generalStatus,
+      assignedAt: a.assignedAt.toISOString(),
+      deliveredByName: a.deliveredBy?.name ?? null,
+      notes: a.notes ?? null,
+    })),
+    generatedAt: new Date().toISOString(),
+  });
+}
+

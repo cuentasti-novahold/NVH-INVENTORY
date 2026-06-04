@@ -25,6 +25,9 @@ vi.mock('@/lib/prisma', () => ({
     importLog: {
       create: vi.fn(),
     },
+    assignment: {
+      findMany: vi.fn(),
+    },
     $transaction: vi.fn(),
   },
 }));
@@ -41,6 +44,7 @@ import {
   updateEmployeeAction,
   deleteEmployeeAction,
   deactivateEmployeeAction,
+  getEmployeeAssignmentReportAction,
 } from '../actions';
 
 const mockAuth = auth as ReturnType<typeof vi.fn>;
@@ -49,6 +53,7 @@ const mockDepartment = prisma.department as Record<string, ReturnType<typeof vi.
 const mockCity = prisma.city as Record<string, ReturnType<typeof vi.fn>>;
 const mockLocation = prisma.location as Record<string, ReturnType<typeof vi.fn>>;
 const mockImportLog = prisma.importLog as Record<string, ReturnType<typeof vi.fn>>;
+const mockAssignment = prisma.assignment as Record<string, ReturnType<typeof vi.fn>>;
 const mockTransaction = prisma.$transaction as ReturnType<typeof vi.fn>;
 
 function makeSession(role: string) {
@@ -336,6 +341,96 @@ describe('deactivateEmployeeAction', () => {
       data: { isActive: false },
     });
     expect(revalidatePath).toHaveBeenCalledWith('/employees');
+  });
+});
+
+// ─── getEmployeeAssignmentReportAction ────────────────────────────────────────
+
+const sampleEmployeeFull = {
+  id: 'emp-abc12345',
+  fullName: 'Laura Gómez',
+  email: 'laura@novahold.com',
+  phone: '3001234567',
+  position: 'Analista TI',
+  department: { name: 'Tecnología' },
+  city: { name: 'Bogotá' },
+  location: { name: 'Sede Norte' },
+};
+
+const sampleAssignment = {
+  id: 'asgn-1',
+  assignedAt: new Date('2024-03-01T00:00:00.000Z'),
+  notes: 'Equipo nuevo',
+  asset: {
+    assetCode: 'NVH-LAP-00001',
+    brand: 'Dell',
+    model: 'Latitude 5420',
+    serialNumber: 'SN123',
+    generalStatus: 'GOOD',
+    category: { name: 'Laptop' },
+  },
+  deliveredBy: { name: 'Carlos Admin' },
+};
+
+describe('getEmployeeAssignmentReportAction', () => {
+  it('returns FORBIDDEN when unauthenticated', async () => {
+    mockAuth.mockResolvedValue(null);
+    const result = await getEmployeeAssignmentReportAction('emp-abc12345');
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.code).toBe('FORBIDDEN');
+  });
+
+  it('returns FORBIDDEN for TECHNICIAN (no employees:read)', async () => {
+    mockAuth.mockResolvedValue(makeSession('TECHNICIAN'));
+    const result = await getEmployeeAssignmentReportAction('emp-abc12345');
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.code).toBe('FORBIDDEN');
+  });
+
+  it('returns NOT_FOUND for unknown employeeId', async () => {
+    mockAuth.mockResolvedValue(makeSession('VIEWER'));
+    mockEmployee.findUnique.mockResolvedValue(null);
+    mockAssignment.findMany.mockResolvedValue([]);
+    const result = await getEmployeeAssignmentReportAction('does-not-exist');
+    expect(result.ok).toBe(false);
+    if (!result.ok) expect(result.code).toBe('NOT_FOUND');
+  });
+
+  it('returns ok with empty assignments array when no ACTIVE assignments', async () => {
+    mockAuth.mockResolvedValue(makeSession('VIEWER'));
+    mockEmployee.findUnique.mockResolvedValue(sampleEmployeeFull);
+    mockAssignment.findMany.mockResolvedValue([]);
+    const result = await getEmployeeAssignmentReportAction('emp-abc12345');
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.data.assignments).toHaveLength(0);
+      expect(result.data.employee.fullName).toBe('Laura Gómez');
+    }
+  });
+
+  it('returns ok with correctly mapped assignment data for VIEWER', async () => {
+    mockAuth.mockResolvedValue(makeSession('VIEWER'));
+    mockEmployee.findUnique.mockResolvedValue(sampleEmployeeFull);
+    mockAssignment.findMany.mockResolvedValue([sampleAssignment]);
+    const result = await getEmployeeAssignmentReportAction('emp-abc12345');
+    expect(result.ok).toBe(true);
+    if (result.ok) {
+      expect(result.data.employee.fullName).toBe('Laura Gómez');
+      expect(result.data.employee.departmentName).toBe('Tecnología');
+      expect(result.data.employee.cityName).toBe('Bogotá');
+      expect(result.data.employee.locationName).toBe('Sede Norte');
+      expect(result.data.assignments).toHaveLength(1);
+      const a = result.data.assignments[0];
+      expect(a.assetCode).toBe('NVH-LAP-00001');
+      expect(a.categoryName).toBe('Laptop');
+      expect(a.brand).toBe('Dell');
+      expect(a.model).toBe('Latitude 5420');
+      expect(a.serialNumber).toBe('SN123');
+      expect(a.generalStatus).toBe('GOOD');
+      expect(a.assignedAt).toBe('2024-03-01T00:00:00.000Z');
+      expect(a.deliveredByName).toBe('Carlos Admin');
+      expect(a.notes).toBe('Equipo nuevo');
+    }
   });
 });
 
