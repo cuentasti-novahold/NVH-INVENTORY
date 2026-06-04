@@ -1,13 +1,10 @@
 'use server';
 
-import * as yup from 'yup';
 import { revalidatePath } from 'next/cache';
 import { auth } from '@/auth';
 import { prisma } from '@/lib/prisma';
-import type { Prisma } from '@/generated/prisma/client';
 import { hasPermission } from '@/lib/permissions';
 import { ok, err, type ActionResult } from '@/shared/types/action-result';
-import type { ExcelImportResult, ExcelRowError } from '@/shared/ui/types/excel-import.types';
 import {
   employeeCreateSchema,
   employeeUpdateSchema,
@@ -17,7 +14,6 @@ import type {
   EmployeeRow,
   CreateEmployeeDTO,
   UpdateEmployeeDTO,
-  EmployeeImportRow,
 } from './presentation/dto/employee.dto';
 
 type Role = Parameters<typeof hasPermission>[0];
@@ -369,153 +365,3 @@ export async function deactivateEmployeeAction(id: string): Promise<ActionResult
   }
 }
 
-// ─── Import ────────────────────────────────────────────────────────────────────
-
-function toBool(v: string | boolean | null): boolean {
-  if (typeof v === 'boolean') return v;
-  if (typeof v !== 'string') return true;
-  const norm = v.trim().toLowerCase();
-  return !(norm === 'no' || norm === 'false' || norm === '0' || norm === 'inactivo');
-}
-
-export async function importEmployeesAction(
-  rows: EmployeeImportRow[],
-): Promise<ActionResult<ExcelImportResult>> {
-  const g = await requireWrite();
-  if (!g.ok) return g.error;
-  const userId = g.userId;
-
-  const errors: ExcelRowError[] = [];
-  let inserted = 0;
-  let skipped = 0;
-
-  const existingEmails = new Set(
-    (await prisma.employee.findMany({ select: { email: true } })).map((e) =>
-      e.email.toLowerCase(),
-    ),
-  );
-  const seenEmailsInBatch = new Set<string>();
-
-  for (let i = 0; i < rows.length; i++) {
-    const r = rows[i]!;
-    const rowNum = i + 2;
-
-    if (!r.fullName || !r.fullName.trim()) {
-      errors.push({ row: rowNum, field: 'fullName', message: 'Nombre requerido' });
-      skipped++;
-      continue;
-    }
-    if (!r.email || !r.email.trim()) {
-      errors.push({ row: rowNum, field: 'email', message: 'Correo requerido' });
-      skipped++;
-      continue;
-    }
-
-    const emailNorm = r.email.trim().toLowerCase();
-
-    try {
-      await yup.string().email().required().validate(emailNorm);
-    } catch {
-      errors.push({ row: rowNum, field: 'email', message: 'Correo inválido' });
-      skipped++;
-      continue;
-    }
-
-    if (seenEmailsInBatch.has(emailNorm)) {
-      errors.push({ row: rowNum, field: 'email', message: 'Correo duplicado en el archivo' });
-      skipped++;
-      continue;
-    }
-    if (existingEmails.has(emailNorm)) {
-      errors.push({ row: rowNum, field: 'email', message: 'Correo ya existe en la base' });
-      skipped++;
-      continue;
-    }
-
-    try {
-      await prisma.$transaction(async (tx) => {
-        let deptId: string | null = null;
-        if (r.department && r.department.trim()) {
-          const d = await tx.department.upsert({
-            where: { name: r.department.trim() },
-            update: {},
-            create: { name: r.department.trim() },
-            select: { id: true },
-          });
-          deptId = d.id;
-        }
-
-        let cityId: string | null = null;
-        if (r.city && r.city.trim()) {
-          const c = await tx.city.findFirst({
-            where: { name: { contains: r.city.trim() } },
-            select: { id: true },
-          });
-          if (!c) throw new Error(`CITY_NOT_FOUND:${r.city.trim()}`);
-          cityId = c.id;
-        }
-
-        let locationId: string | null = null;
-        if (r.location && r.location.trim()) {
-          const l = await tx.location.findFirst({
-            where: { name: { contains: r.location.trim() } },
-            select: { id: true },
-          });
-          if (!l) throw new Error(`LOCATION_NOT_FOUND:${r.location.trim()}`);
-          locationId = l.id;
-        }
-
-        await tx.employee.create({
-          data: {
-            fullName: r.fullName!.trim(),
-            email: emailNorm,
-            phone: r.phone?.trim() || null,
-            position: r.position?.trim() || null,
-            isActive: toBool(r.isActive),
-            ...(deptId ? { department: { connect: { id: deptId } } } : {}),
-            ...(cityId ? { city: { connect: { id: cityId } } } : {}),
-            ...(locationId ? { location: { connect: { id: locationId } } } : {}),
-          },
-        });
-      });
-
-      inserted++;
-      existingEmails.add(emailNorm);
-      seenEmailsInBatch.add(emailNorm);
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : '';
-      if (msg.startsWith('CITY_NOT_FOUND:'))
-        errors.push({
-          row: rowNum,
-          field: 'city',
-          message: `Ciudad no encontrada: ${msg.split(':')[1]}`,
-        });
-      else if (msg.startsWith('LOCATION_NOT_FOUND:'))
-        errors.push({
-          row: rowNum,
-          field: 'location',
-          message: `Sede no encontrada: ${msg.split(':')[1]}`,
-        });
-      else if (isP2002(e, 'email'))
-        errors.push({ row: rowNum, field: 'email', message: 'Correo duplicado' });
-      else errors.push({ row: rowNum, message: 'Error al insertar' });
-      skipped++;
-    }
-  }
-
-  await prisma.importLog.create({
-    data: {
-      userId,
-      entity: 'Employee',
-      fileName: 'employees-import.xlsx',
-      totalRows: rows.length,
-      successRows: inserted,
-      errorRows: skipped,
-      errors: errors.length > 0 ? (errors as unknown as Prisma.InputJsonValue) : undefined,
-      status: inserted === 0 && skipped > 0 ? 'FAILED' : 'COMPLETED',
-    },
-  });
-
-  revalidatePath('/employees');
-  return ok({ inserted, skipped, errors });
-}

@@ -2,15 +2,13 @@
 
 import { useState, useTransition } from 'react';
 import { toast } from 'sonner';
-import type { ExcelImportResult } from '@/shared/ui/types/excel-import.types';
 import {
   createEmployeeAction,
   updateEmployeeAction,
   deleteEmployeeAction,
   deactivateEmployeeAction,
-  importEmployeesAction,
 } from '../../actions';
-import type { EmployeeRow, CreateEmployeeDTO, UpdateEmployeeDTO, EmployeeImportRow } from '../dto/employee.dto';
+import type { EmployeeRow, CreateEmployeeDTO, UpdateEmployeeDTO } from '../dto/employee.dto';
 
 export function useEmployees() {
   const [pending, start] = useTransition();
@@ -72,18 +70,5 @@ export function useEmployees() {
     });
   }
 
-  function importRows(rows: EmployeeImportRow[], onSuccess: (result: ExcelImportResult) => void) {
-    reset();
-    start(async () => {
-      const r = await importEmployeesAction(rows);
-      if (r.ok) {
-        toast.success(`Importación: ${r.data.inserted} insertados, ${r.data.skipped} omitidos`);
-        onSuccess(r.data);
-      } else {
-        toast.error(r.message);
-      }
-    });
-  }
-
-  return { pending, fieldErrors, create, update, remove, deactivate, importRows };
+  return { pending, fieldErrors, create, update, remove, deactivate };
 }

@@ -28,14 +28,3 @@ export interface CreateEmployeeDTO {
 }
 
 export type UpdateEmployeeDTO = Partial<CreateEmployeeDTO>;
-
-export interface EmployeeImportRow {
-  fullName: string | null;
-  email: string | null;
-  phone: string | null;
-  position: string | null;
-  department: string | null;
-  city: string | null;
-  location: string | null;
-  isActive: string | boolean | null;
-}

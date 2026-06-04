@@ -10,12 +10,11 @@ import { MainDataTable } from '@/components/tables/MainTable';
 import { TablePageToolbar } from '@/components/dashboard/TablePageToolbar';
 import { Show } from '@/components/show/Show.component';
 import { CrudFormDialog } from '@/shared/presentation/components/form-builder/CrudFormDialog';
-import { ExcelImportDialog } from '@/shared/ui/components/ExcelImportDialog';
+import { ExcelImportDialog } from '@/shared/excel-import/components/ExcelImportDialog';
 import { employeeColumns } from './columns-employees';
 import { buildEmployeeFormConfig } from '../forms/employee-form.config';
 import { useEmployees } from '../hooks/use-employees';
-import { importEmployeesAction } from '../../actions';
-import type { EmployeeRow, CreateEmployeeDTO, UpdateEmployeeDTO, EmployeeImportRow } from '../dto/employee.dto';
+import type { EmployeeRow, CreateEmployeeDTO, UpdateEmployeeDTO } from '../dto/employee.dto';
 import type { PageInfo } from '@/shared/types/pagination';
 
 type IsActiveParam = 'active' | 'inactive' | 'all';
@@ -221,28 +220,12 @@ export function EmployeesTablePage({
         }}
       />
 
-      <ExcelImportDialog<EmployeeImportRow>
+      <ExcelImportDialog
         open={dialogs.importOpen}
         onOpenChange={(open) => setDialogs((s) => ({ ...s, importOpen: open }))}
+        moduleKey="employees"
         title="Importar empleados"
-        description="Columnas requeridas: fullName, email. Opcionales: phone, position, department, city, location, isActive."
-        expectedColumns={['fullName', 'email']}
-        action={async (rows) => {
-          const r = await importEmployeesAction(rows);
-          if (!r.ok)
-            return { inserted: 0, skipped: rows.length, errors: [{ row: 0, message: r.message }] };
-          return r.data;
-        }}
-        parseRow={(raw) => ({
-          fullName: (raw.fullName as string | null) ?? null,
-          email: (raw.email as string | null) ?? null,
-          phone: (raw.phone as string | null) ?? null,
-          position: (raw.position as string | null) ?? null,
-          department: (raw.department as string | null) ?? null,
-          city: (raw.city as string | null) ?? null,
-          location: (raw.location as string | null) ?? null,
-          isActive: (raw.isActive as string | boolean | null) ?? null,
-        })}
+        onSuccess={() => router.refresh()}
       />
     </div>
   );
