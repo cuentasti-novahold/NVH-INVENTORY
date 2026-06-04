@@ -1,17 +1,61 @@
-import { Wrench } from 'lucide-react';
+import { auth } from '@/auth';
+import { redirect } from 'next/navigation';
+import { hasPermission } from '@/lib/permissions';
+import { listMaintenancesAction } from './actions';
+import { MaintenanceTablePage } from './presentation/components/MaintenanceTablePage';
+import type { MaintenanceType } from './presentation/dto/maintenance.dto';
 
-export default function MaintenancePage() {
+type Role = Parameters<typeof hasPermission>[0];
+type TypeFilter = MaintenanceType | 'all';
+
+const VALID_TYPES: string[] = ['REVISION', 'REPAIR', 'UPGRADE', 'CLEANING'];
+
+export default async function MaintenancePage({
+  searchParams,
+}: {
+  searchParams: Promise<{
+    afterCursor?: string;
+    beforeCursor?: string;
+    pageSize?: string;
+    type?: string;
+    assetId?: string;
+  }>;
+}) {
+  const session = await auth();
+  if (!session?.user || !hasPermission(session.user.role as Role, 'maintenance', 'read')) {
+    redirect('/');
+  }
+
+  const sp = await searchParams;
+  const pageSize = Math.min(100, Math.max(5, Number(sp.pageSize ?? 20) || 20));
+  const afterCursor = sp.afterCursor || undefined;
+  const beforeCursor = sp.beforeCursor || undefined;
+  const currentType = (
+    VALID_TYPES.includes(sp.type ?? '') ? sp.type : 'all'
+  ) as TypeFilter;
+  const assetId = sp.assetId?.trim() ?? '';
+
+  const result = await listMaintenancesAction({
+    pageSize,
+    afterCursor,
+    beforeCursor,
+    type: currentType === 'all' ? undefined : currentType,
+    assetId: assetId || undefined,
+  });
+
+  const initialData = result.ok
+    ? result.data
+    : { rows: [], rowCount: 0, pageInfo: { hasNextPage: false, hasPreviousPage: false, startCursor: undefined, endCursor: undefined, limit: pageSize } };
+
+  const canWrite = hasPermission(session.user.role as Role, 'maintenance', 'create');
+  const canDelete = hasPermission(session.user.role as Role, 'maintenance', 'delete');
+
   return (
-    <div className="flex h-full flex-col items-center justify-center gap-4 p-6 text-center">
-      <div className="flex h-16 w-16 items-center justify-center rounded-2xl bg-amber-500/10">
-        <Wrench className="h-8 w-8 text-amber-500" />
-      </div>
-      <div className="flex flex-col gap-1.5">
-        <h1 className="text-xl font-semibold tracking-tight">Módulo en construcción</h1>
-        <p className="max-w-sm text-sm text-muted-foreground">
-          El módulo de mantenimiento está en desarrollo. Pronto podrás registrar y consultar el historial de mantenimiento de los activos.
-        </p>
-      </div>
-    </div>
+    <MaintenanceTablePage
+      initialData={initialData}
+      canWrite={canWrite}
+      canDelete={canDelete}
+      currentType={currentType}
+    />
   );
 }
