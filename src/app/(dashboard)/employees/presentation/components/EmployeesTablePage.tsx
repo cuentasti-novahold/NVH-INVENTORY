@@ -3,7 +3,7 @@
 import { useMemo, useState } from 'react';
 import { useRouter, usePathname, useSearchParams } from 'next/navigation';
 import type { ColumnDef } from '@tanstack/react-table';
-import { Pencil, PowerOff, Trash2, Plus, FileSpreadsheet, Users } from 'lucide-react';
+import { Pencil, PowerOff, Trash2, Plus, FileSpreadsheet, Users, FileText } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { MainDataTable } from '@/components/tables/MainTable';
@@ -14,6 +14,7 @@ import { ExcelImportDialog } from '@/shared/excel-import/components/ExcelImportD
 import { employeeColumns } from './columns-employees';
 import { buildEmployeeFormConfig } from '../forms/employee-form.config';
 import { useEmployees } from '../hooks/use-employees';
+import { EmployeeActaDownload } from './EmployeeActaDownload';
 import type { EmployeeRow, CreateEmployeeDTO, UpdateEmployeeDTO } from '../dto/employee.dto';
 import type { PageInfo } from '@/shared/types/pagination';
 
@@ -44,6 +45,7 @@ export function EmployeesTablePage({
     importOpen: false,
   });
   const [editing, setEditing] = useState<EmployeeRow | null>(null);
+  const [downloadId, setDownloadId] = useState<string | null>(null);
 
   const router = useRouter();
   const pathname = usePathname();
@@ -65,53 +67,67 @@ export function EmployeesTablePage({
       {
         id: 'actions',
         header: 'Acciones',
-        cell: ({ row }) =>
-          canWrite ? (
-            <div className="flex items-center gap-1">
-              <Button
-                size="icon"
-                variant="ghost"
-                className="h-8 w-8"
-                onClick={() => {
-                  setEditing(row.original);
-                  setDialogs((s) => ({ ...s, editOpen: true }));
-                }}
-              >
-                <Pencil className="h-4 w-4" />
-              </Button>
-              {row.original.isActive && (
+        cell: ({ row }) => (
+          <div className="flex items-center gap-1">
+            {canWrite && (
+              <>
                 <Button
                   size="icon"
                   variant="ghost"
                   className="h-8 w-8"
-                  onClick={() => deactivate(row.original.id, () => {})}
+                  onClick={() => {
+                    setEditing(row.original);
+                    setDialogs((s) => ({ ...s, editOpen: true }));
+                  }}
                 >
-                  <PowerOff className="h-4 w-4" />
+                  <Pencil className="h-4 w-4" />
                 </Button>
-              )}
+                {row.original.isActive && (
+                  <Button
+                    size="icon"
+                    variant="ghost"
+                    className="h-8 w-8"
+                    onClick={() => deactivate(row.original.id, () => {})}
+                  >
+                    <PowerOff className="h-4 w-4" />
+                  </Button>
+                )}
+                <Button
+                  size="icon"
+                  variant="ghost"
+                  className="h-8 w-8"
+                  onClick={() => {
+                    if (row.original.assignmentsCount > 0) {
+                      toast.error(
+                        'No se puede eliminar: tiene asignaciones. Usá "Desactivar".',
+                      );
+                      return;
+                    }
+                    if (confirm(`¿Eliminar a ${row.original.fullName}?`)) {
+                      remove(row.original.id, () => {});
+                    }
+                  }}
+                >
+                  <Trash2 className="h-4 w-4 text-destructive" />
+                </Button>
+              </>
+            )}
+            {row.original.assignmentsCount > 0 && (
               <Button
                 size="icon"
                 variant="ghost"
                 className="h-8 w-8"
-                onClick={() => {
-                  if (row.original.assignmentsCount > 0) {
-                    toast.error(
-                      'No se puede eliminar: tiene asignaciones. Usá "Desactivar".',
-                    );
-                    return;
-                  }
-                  if (confirm(`¿Eliminar a ${row.original.fullName}?`)) {
-                    remove(row.original.id, () => {});
-                  }
-                }}
+                title="Descargar acta de asignación"
+                onClick={() => setDownloadId(row.original.id)}
               >
-                <Trash2 className="h-4 w-4 text-destructive" />
+                <FileText className="h-4 w-4" />
               </Button>
-            </div>
-          ) : null,
+            )}
+          </div>
+        ),
       },
     ],
-    [canWrite, deactivate, remove],
+    [canWrite, deactivate, remove, downloadId],
   );
 
   function onNextPage() {
@@ -227,6 +243,13 @@ export function EmployeesTablePage({
         title="Importar empleados"
         onSuccess={() => router.refresh()}
       />
+
+      {downloadId && (
+        <EmployeeActaDownload
+          employeeId={downloadId}
+          onDone={() => setDownloadId(null)}
+        />
+      )}
     </div>
   );
 }
