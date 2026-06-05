@@ -66,18 +66,20 @@ export function DashboardSidebar({ user }: DashboardSidebarProps) {
           )}
         >
           {isCollapsed ? (
-            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-sidebar-primary/20 text-sidebar-primary text-[11px] font-bold tracking-tight select-none">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-sidebar-primary/15 ring-1 ring-sidebar-primary/30 text-sidebar-primary text-[11px] font-bold tracking-tight select-none">
               NH
             </div>
           ) : (
-            <Image
-              src="/images/logo.png"
-              alt="Novahold Enterprises"
-              width={503}
-              height={366}
-              className="h-14 w-auto object-contain"
-              priority
-            />
+            <div className="overflow-hidden rounded-xl ring-1 ring-sidebar-primary/25 shadow-[0_0_0_4px_rgba(23,175,149,0.06)]">
+              <Image
+                src="/images/logo.png"
+                alt="Novahold Enterprises"
+                width={100}
+                height={73}
+                className="block"
+                priority
+              />
+            </div>
           )}
 
           {/* Desktop collapse toggle */}

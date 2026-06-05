@@ -10,6 +10,7 @@ import {
   BarChart2,
   QrCode,
   Coins,
+  Building2,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -32,6 +33,7 @@ export const SIDEBAR_NAV_SECTIONS: SidebarNavSection[] = [
     label: 'CATÁLOGOS',
     items: [
       { href: '/settings/categories', label: 'Categorías', icon: Boxes },
+      { href: '/settings/departments', label: 'Departamentos', icon: Building2 },
       { href: '/settings/locations', label: 'Ubicaciones', icon: MapPin },
       { href: '/settings/currencies', label: 'Monedas', icon: Coins },
     ],

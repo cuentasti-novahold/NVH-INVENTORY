@@ -1,5 +1,5 @@
 import type { FormConfig } from '@/shared/presentation/types/form-config.types';
-import { searchDepartmentsAction } from '../../actions';
+import { searchDepartmentsAction } from '@/app/(dashboard)/settings/departments/actions';
 import {
   searchCitiesAction,
   searchLocationsAction,

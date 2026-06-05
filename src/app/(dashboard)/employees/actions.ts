@@ -194,19 +194,7 @@ export async function searchEmployeesAction(
 
 // ─── Search departments (autocomplete) ────────────────────────────────────────
 
-export async function searchDepartmentsAction(
-  query: string,
-): Promise<ActionResult<{ code: string; value: string }[]>> {
-  const session = await auth();
-  if (!session?.user) return err('UNAUTHORIZED', 'No autenticado');
-  const rows = await prisma.department.findMany({
-    where: { name: { contains: query.trim() } },
-    select: { id: true, name: true },
-    take: 20,
-    orderBy: { name: 'asc' },
-  });
-  return ok(rows.map((r) => ({ code: r.id, value: r.name })));
-}
+export { searchDepartmentsAction } from '@/app/(dashboard)/settings/departments/actions';
 
 // ─── Create ────────────────────────────────────────────────────────────────────
 
