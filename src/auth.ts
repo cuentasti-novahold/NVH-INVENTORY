@@ -53,16 +53,14 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     adapter: PrismaAdapter(prisma as any),
   }),
-  session: { strategy: isDev ? 'jwt' : 'database' },
+  session: { strategy: 'jwt' },
   providers: [...authConfig.providers, ...devProviders],
   callbacks: {
     ...authConfig.callbacks,
     session: sessionCallback as never,
-    ...(isDev && {
-      jwt({ token, user }: { token: JWT; user?: { role: UserRole } }) {
-        if (user?.role) token.role = user.role;
-        return token;
-      },
-    }),
+    jwt({ token, user }: { token: JWT; user?: { role: UserRole } }) {
+      if (user?.role) token.role = user.role;
+      return token;
+    },
   },
 });
