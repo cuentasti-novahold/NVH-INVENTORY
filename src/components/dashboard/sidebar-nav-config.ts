@@ -9,6 +9,7 @@ import {
   ArrowRightLeft,
   BarChart2,
   QrCode,
+  Coins,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -32,6 +33,7 @@ export const SIDEBAR_NAV_SECTIONS: SidebarNavSection[] = [
     items: [
       { href: '/settings/categories', label: 'Categorías', icon: Boxes },
       { href: '/settings/locations', label: 'Ubicaciones', icon: MapPin },
+      { href: '/settings/currencies', label: 'Monedas', icon: Coins },
     ],
   },
   {

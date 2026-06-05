@@ -88,8 +88,8 @@ deploy antes de que el nuevo código entre en servicio.
 ### 2.3 Instalar MySQL 8
 
 ```bash
-sudo apt update && sudo apt install -y mysql-server
-sudo mysql_secure_installation
+
+
 # opciones: set root password, remove anonymous users,
 #            disallow remote root login, remove test DB, reload privileges
 ```

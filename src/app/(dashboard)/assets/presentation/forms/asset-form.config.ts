@@ -3,6 +3,7 @@ import type { FormConfig, FieldVisibility } from '@/shared/presentation/types/fo
 import { getCategoryFieldConfigAction, searchAssetsAction } from '@/app/(dashboard)/assets/actions';
 import { searchCategoriesAction } from '@/app/(dashboard)/settings/categories/actions';
 import { searchLocationsAction, searchBodegasByLocationAction } from '@/app/(dashboard)/settings/locations/actions';
+import { searchCurrenciesAction } from '@/app/(dashboard)/settings/currencies/actions';
 import type { AssetRow, CreateAssetDTO, AssetStatus, StorageType } from '../dto/asset.dto';
 
 /* ─── Mode B server action — called once per unique categoryId ──── */
@@ -244,13 +245,16 @@ export function buildAssetFormConfig(editing?: AssetRow | null): FormConfig {
           {
             name: 'currencyCode',
             label: 'Moneda',
-            type: 'select',
+            type: 'autocomplete',
             gridCols: 2,
-            options: [
-              { label: 'COP — Peso colombiano', value: 'COP' },
-              { label: 'USD — Dólar americano', value: 'USD' },
-              { label: 'EUR — Euro', value: 'EUR' },
-            ],
+            autocompleteConfig: {
+              searchAction: (q: string) => searchCurrenciesAction(q).then((r) => (r.ok ? r.data : [])),
+              returnMode: 'code',
+              placeholder: 'Buscar moneda…',
+              minChars: 0,
+              initialDisplayValueField: 'currencyCode',
+              initialDisplayValue: 'COP',
+            },
           },
           { name: 'salvageValue', label: 'Valor residual (COP)', type: 'number', gridCols: 2, min: 0, placeholder: '0' },
           { name: 'usefulLifeYears', label: 'Vida útil (años)', type: 'number', gridCols: 2, min: 1, max: 50, placeholder: '3' },
