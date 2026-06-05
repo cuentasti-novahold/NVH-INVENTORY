@@ -62,31 +62,22 @@ export function DashboardSidebar({ user }: DashboardSidebarProps) {
         <div
           className={cn(
             'relative flex items-center shrink-0 border-b border-sidebar-border',
-            isCollapsed ? 'justify-center px-3 py-4' : 'px-5 py-4 pr-10',
+            isCollapsed ? 'justify-center px-3 py-4' : 'px-5 py-[14px] pr-10',
           )}
         >
           {isCollapsed ? (
-            <div className="overflow-hidden rounded-lg w-8 h-8 ring-1 ring-white/10">
-              <Image
-                src="/images/logo.png"
-                alt="Novahold"
-                width={32}
-                height={32}
-                className="object-cover object-left"
-                priority
-              />
+            <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-sidebar-primary/20 text-sidebar-primary text-[11px] font-bold tracking-tight select-none">
+              NH
             </div>
           ) : (
-            <div className="overflow-hidden rounded-xl ring-1 ring-white/10">
-              <Image
-                src="/images/logo.png"
-                alt="Novahold Enterprises"
-                width={152}
-                height={60}
-                className="object-cover w-full h-auto"
-                priority
-              />
-            </div>
+            <Image
+              src="/images/logo.png"
+              alt="Novahold Enterprises"
+              width={503}
+              height={366}
+              className="h-14 w-auto object-contain"
+              priority
+            />
           )}
 
           {/* Desktop collapse toggle */}
