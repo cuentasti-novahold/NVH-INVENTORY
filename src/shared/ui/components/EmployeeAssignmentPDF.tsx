@@ -1,4 +1,5 @@
 import { Document, Page, Text, View, StyleSheet } from '@react-pdf/renderer';
+import '@/shared/pdf/fonts';
 import type { EmployeeAssignmentReportData } from '@/app/(dashboard)/employees/actions';
 
 const STATUS_LABELS: Record<string, string> = {
@@ -21,7 +22,7 @@ const WHITE = '#ffffff';
 
 const styles = StyleSheet.create({
   page: {
-    fontFamily: 'Helvetica',
+    fontFamily: 'Poppins',
     fontSize: 9.5,
     color: INK,
     backgroundColor: WHITE,
@@ -44,7 +45,7 @@ const styles = StyleSheet.create({
   },
   headerTitle: {
     fontSize: 20,
-    fontFamily: 'Helvetica-Bold',
+    fontFamily: 'Poppins-Bold',
     color: WHITE,
     letterSpacing: -0.3,
     marginBottom: 8,
@@ -97,7 +98,7 @@ const styles = StyleSheet.create({
   },
   sectionTitle: {
     fontSize: 8,
-    fontFamily: 'Helvetica-Bold',
+    fontFamily: 'Poppins-Bold',
     color: NAVY,
     letterSpacing: 1.2,
     textTransform: 'uppercase',
@@ -125,13 +126,13 @@ const styles = StyleSheet.create({
     width: 100,
     fontSize: 8.5,
     color: INK_MUTED,
-    fontFamily: 'Helvetica',
+    fontFamily: 'Poppins',
   },
   dataValue: {
     flex: 1,
     fontSize: 8.5,
     color: INK,
-    fontFamily: 'Helvetica-Bold',
+    fontFamily: 'Poppins-Bold',
   },
 
   // ── Asset table ───────────────────────────────────────────────────────────
@@ -150,7 +151,7 @@ const styles = StyleSheet.create({
   },
   tableHeadCell: {
     fontSize: 7.5,
-    fontFamily: 'Helvetica-Bold',
+    fontFamily: 'Poppins-Bold',
     color: WHITE,
     letterSpacing: 0.5,
   },
@@ -176,7 +177,7 @@ const styles = StyleSheet.create({
   },
   tableCellCode: {
     fontSize: 8,
-    fontFamily: 'Helvetica-Bold',
+    fontFamily: 'Poppins-Bold',
     color: NAVY,
   },
 
@@ -200,7 +201,7 @@ const styles = StyleSheet.create({
   statusBadgeText: {
     fontSize: 7.5,
     color: NAVY,
-    fontFamily: 'Helvetica-Bold',
+    fontFamily: 'Poppins-Bold',
   },
 
   empty: { color: INK_MUTED, fontStyle: 'italic', fontSize: 9 },
@@ -236,7 +237,7 @@ const styles = StyleSheet.create({
   },
   signName: {
     fontSize: 9,
-    fontFamily: 'Helvetica-Bold',
+    fontFamily: 'Poppins-Bold',
     color: INK,
     marginBottom: 3,
   },
@@ -270,7 +271,7 @@ const styles = StyleSheet.create({
   footerBrand: {
     fontSize: 7.5,
     color: TEAL,
-    fontFamily: 'Helvetica-Bold',
+    fontFamily: 'Poppins-Bold',
   },
 });
 

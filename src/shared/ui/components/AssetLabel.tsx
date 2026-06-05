@@ -1,4 +1,5 @@
 import { Document, Page, View, Text, Image, StyleSheet } from '@react-pdf/renderer';
+import '@/shared/pdf/fonts';
 
 const styles = StyleSheet.create({
   page: {
@@ -8,6 +9,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
+    fontFamily: 'Poppins',
   },
   qr: {
     width: 90,
