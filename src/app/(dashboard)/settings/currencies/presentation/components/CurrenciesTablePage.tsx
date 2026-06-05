@@ -165,7 +165,7 @@ export function CurrenciesTablePage({
         onOpenChange={(o) => setUiState((s) => ({ ...s, editOpen: o }))}
         title={uiState.editing ? `Editar ${uiState.editing.name}` : 'Editar moneda'}
         formConfig={currencyFormConfig}
-        defaultValues={uiState.editing ?? undefined}
+        defaultValues={uiState.editing ? (uiState.editing as unknown as Record<string, unknown>) : undefined}
         isLoading={pending}
         onSubmit={(data) => {
           if (!uiState.editing) return;
