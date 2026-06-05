@@ -70,10 +70,11 @@ Cambiar/agregar estas líneas:
 bind-address             = 0.0.0.0
 mysqlx-bind-address      = 0.0.0.0
 max_connections          = 200
-require_secure_transport = ON
 local_infile             = 0
 skip-name-resolve
 ```
+
+> **NO agregar `require_secure_transport = ON`** — Prisma migrate deploy no soporta SSL en MySQL 8.4 con `caching_sha2_password` (plugin por defecto). Dejarlo OFF permite que las migraciones funcionen. La app en runtime igual usa SSL via el adapter en `prisma.ts`.
 
 ---
 
@@ -143,8 +144,7 @@ sudo mysql
 CREATE DATABASE novahold CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
 
 CREATE USER 'novahold_app'@'%'
-  IDENTIFIED BY '<contraseña-32chars>'
-  REQUIRE X509;
+  IDENTIFIED BY '<contraseña-sin-caracteres-especiales>';
 
 GRANT SELECT, INSERT, UPDATE, DELETE,
       CREATE, ALTER, DROP, INDEX, REFERENCES
@@ -154,7 +154,27 @@ FLUSH PRIVILEGES;
 exit
 ```
 
-> `REQUIRE X509` exige certificado de cliente firmado por la CA. Sin el cert, el handshake TLS falla antes de que MySQL vea la contraseña.
+> **Importante — contraseña sin `@`, `#`, `?`, `&`**: estos caracteres son especiales en URLs. Si la contraseña los contiene, Prisma parsea mal la DATABASE_URL y falla con P1000. Usá solo letras, números y guiones.
+
+> **MySQL 8.4 — `caching_sha2_password`**: es el plugin por defecto y no admite `mysql_native_password`. NO intentar cambiarlo. Funciona correctamente con `REQUIRE NONE` (sin cláusula REQUIRE).
+
+### Verificar que el usuario puede conectarse
+
+```bash
+mysql -h 127.0.0.1 -u novahold_app -p'<contraseña>' novahold
+```
+
+Debe entrar sin errores. Si sale `Access denied`, verificar con:
+
+```bash
+sudo mysql -e "SHOW CREATE USER 'novahold_app'@'%';"
+```
+
+Si muestra `REQUIRE X509` o `REQUIRE SSL`, quitarlo:
+
+```bash
+sudo mysql -e "ALTER USER 'novahold_app'@'%' REQUIRE NONE; FLUSH PRIVILEGES;"
+```
 
 ---
 
@@ -170,7 +190,22 @@ scp -i ~/Downloads/purebasnova.pem ubuntu@<ELASTIC_IP>:~/certs/client-key.pem ~/
 
 ---
 
-## 9. Variables de entorno en Vercel
+## 9. Correr migraciones manualmente (primera vez)
+
+Desde tu Mac, antes del primer deploy:
+
+```bash
+cd /ruta/al/proyecto
+DATABASE_URL='mysql://novahold_app:<contraseña>@<ELASTIC_IP>:3306/novahold' npx prisma migrate deploy
+```
+
+Debe mostrar `All migrations have been successfully applied.`
+
+> En deploys posteriores, si hay cambios de schema: correr `npx prisma migrate dev --name <nombre>` localmente para generar la migración, hacer push, y Vercel aplica el migrate automáticamente en el build.
+
+---
+
+## 10. Variables de entorno en Vercel
 
 Dashboard → Settings → Environment Variables → Production
 
@@ -193,7 +228,7 @@ Pegar el texto completo incluyendo `-----BEGIN CERTIFICATE-----` y `-----END CER
 
 ---
 
-## 10. Conectarse con TablePlus (SSH Tunnel — recomendado)
+## 11. Conectarse con TablePlus (SSH Tunnel — recomendado)
 
 Es la forma más simple: no necesita los certs mTLS, usa la clave SSH que ya tenés.
 
@@ -224,9 +259,14 @@ Hacer clic en **Test** — debe mostrar conexión exitosa.
 
 - [ ] Elastic IP asignada y asociada a la instancia
 - [ ] Security Group: SSH (tu IP) + MySQL 3306 (0.0.0.0/0)
-- [ ] MySQL corriendo con SSL activo (`have_ssl = YES`)
+- [ ] MySQL corriendo con SSL activo (`ssl_ca`, `ssl_cert`, `ssl_key` con rutas)
+- [ ] `require_secure_transport` — OFF (no agregarlo al config)
 - [ ] Base de datos `novahold` creada
-- [ ] Usuario `novahold_app` creado con `REQUIRE X509`
+- [ ] Usuario `novahold_app` creado sin `REQUIRE X509` ni `REQUIRE SSL`
+- [ ] Contraseña sin caracteres especiales (`@`, `#`, `?`, `&`)
+- [ ] `mysql -h 127.0.0.1 -u novahold_app -p'<PW>' novahold` — entra sin errores
+- [ ] `npx prisma migrate deploy` desde Mac — `All migrations applied`
 - [ ] Certs `ca-cert.pem`, `client-cert.pem`, `client-key.pem` en `~/Downloads/`
-- [ ] Variables de entorno cargadas en Vercel
+- [ ] Variables de entorno cargadas en Vercel (DATABASE_URL + 3 certs)
+- [ ] Build de Vercel pasa sin errores
 - [ ] TablePlus conecta por SSH tunnel sin errores
