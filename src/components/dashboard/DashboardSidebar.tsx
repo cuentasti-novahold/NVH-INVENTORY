@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect } from 'react';
+import Image from 'next/image';
 import { usePathname } from 'next/navigation';
 import { ChevronLeft, ChevronRight, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -60,22 +61,31 @@ export function DashboardSidebar({ user }: DashboardSidebarProps) {
         {/* Brand + collapse toggle */}
         <div
           className={cn(
-            'relative flex items-center py-5 shrink-0',
-            isCollapsed ? 'justify-center px-3' : 'gap-3 px-4 pr-10',
+            'relative flex items-center shrink-0 border-b border-sidebar-border',
+            isCollapsed ? 'justify-center px-3 py-4' : 'px-5 py-4 pr-10',
           )}
         >
-          <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-sidebar-primary/20 text-sidebar-primary text-[11px] font-bold tracking-tight">
-            NVH
-          </div>
-
-          {!isCollapsed && (
-            <div className="min-w-0 flex-1 overflow-hidden">
-              <span className="block text-sm font-semibold tracking-tight leading-none">
-                Novahold
-              </span>
-              <span className="block text-[10px] font-medium uppercase tracking-widest text-sidebar-foreground/40 mt-0.5">
-                Inventory
-              </span>
+          {isCollapsed ? (
+            <div className="overflow-hidden rounded-lg w-8 h-8 ring-1 ring-white/10">
+              <Image
+                src="/images/logo.png"
+                alt="Novahold"
+                width={32}
+                height={32}
+                className="object-cover object-left"
+                priority
+              />
+            </div>
+          ) : (
+            <div className="overflow-hidden rounded-xl ring-1 ring-white/10">
+              <Image
+                src="/images/logo.png"
+                alt="Novahold Enterprises"
+                width={152}
+                height={60}
+                className="object-cover w-full h-auto"
+                priority
+              />
             </div>
           )}
 
