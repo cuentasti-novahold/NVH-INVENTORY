@@ -61,7 +61,7 @@ export function DashboardSidebar({ user }: DashboardSidebarProps) {
         {/* Brand + collapse toggle */}
         <div
           className={cn(
-            'relative flex items-center shrink-0 border-b border-sidebar-border',
+            'relative flex items-center shrink-0 bg-sidebar-primary/15',
             isCollapsed ? 'justify-center px-3 py-4' : 'px-5 py-[14px] pr-10',
           )}
         >
