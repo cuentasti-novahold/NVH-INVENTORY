@@ -334,6 +334,7 @@ export async function createAssetAction(
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     return ok(toAssetRow(asset as any));
   } catch (e) {
+    console.error('[createAssetAction]', e);
     if (isP2002(e, 'serialNumber'))
       return err('CONFLICT', 'Número de serie duplicado', {
         serialNumber: 'Ya existe un activo con este serial',

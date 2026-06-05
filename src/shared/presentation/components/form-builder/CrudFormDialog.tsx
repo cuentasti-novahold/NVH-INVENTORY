@@ -420,6 +420,10 @@ export function CrudFormDialog({
   const { register, handleSubmit, reset, setValue, watch, formState: { errors } } =
     useForm<FormValues>({ defaultValues: defaultValues ?? {} });
 
+  const defaultValuesRef = useRef(defaultValues);
+  defaultValuesRef.current = defaultValues;
+  const prevOpenRef = useRef(false);
+
   // T-04: cascade state
   const [cascadeLoadingField, setCascadeLoadingField] = useState<string | null>(null);
   const [cascadeOptions, setCascadeOptions] = useState<Record<string, { label: string; value: string }[]>>({});
@@ -443,8 +447,10 @@ export function CrudFormDialog({
   const [dynamicVisibility, setDynamicVisibility] = useState<Record<string, FieldVisibility>>({});
 
   useEffect(() => {
-    if (noDialogShell || open) reset(defaultValues ?? {});
-  }, [open, defaultValues, reset, noDialogShell]);
+    const justOpened = !prevOpenRef.current && (noDialogShell || !!open);
+    prevOpenRef.current = !!(noDialogShell || open);
+    if (justOpened) reset(defaultValuesRef.current ?? {});
+  }, [open, noDialogShell, reset]);
 
   // T-06: collect Mode B configs (server-action based visibility)
   const modeBConfigs = useMemo(() => {
