@@ -10,10 +10,10 @@ function createAdapter() {
     password: url.password,
     database: url.pathname.slice(1),
     ssl: {
-      rejectUnauthorized: false,
-      ca:   process.env.DB_SSL_CA?.replace(/\\n/g, '\n'),
+      rejectUnauthorized: true,
+      ca: process.env.DB_SSL_CA?.replace(/\\n/g, '\n'),
       cert: process.env.DB_SSL_CERT?.replace(/\\n/g, '\n'),
-      key:  process.env.DB_SSL_KEY?.replace(/\\n/g, '\n'),
+      key: process.env.DB_SSL_KEY?.replace(/\\n/g, '\n'),
     },
     connectionLimit: 3,
     idleTimeout: 10,
