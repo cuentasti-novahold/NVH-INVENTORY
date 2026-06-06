@@ -2,23 +2,29 @@ import { PrismaClient } from '@/generated/prisma/client';
 import { PrismaMariaDb } from '@prisma/adapter-mariadb';
 
 function createAdapter() {
+  const isDev = process.env.NODE_ENV === 'development';
   const url = new URL(process.env.DATABASE_URL ?? 'mysql://root:root@localhost:3306/novahold');
+
+  const sslConfig = isDev
+    ? undefined
+    : // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      ({
+        rejectUnauthorized: true,
+        ca: process.env.DB_SSL_CA?.replace(/\\n/g, '\n'),
+        cert: process.env.DB_SSL_CERT?.replace(/\\n/g, '\n'),
+        key: process.env.DB_SSL_KEY?.replace(/\\n/g, '\n'),
+        checkServerIdentity: () => undefined,
+      } as any);
+
   return new PrismaMariaDb({
     host: url.hostname,
     port: Number(url.port) || 3306,
     user: url.username,
     password: url.password,
     database: url.pathname.slice(1),
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    ssl: {
-      rejectUnauthorized: true,
-      ca: process.env.DB_SSL_CA?.replace(/\\n/g, '\n'),
-      cert: process.env.DB_SSL_CERT?.replace(/\\n/g, '\n'),
-      key: process.env.DB_SSL_KEY?.replace(/\\n/g, '\n'),
-      checkServerIdentity: () => undefined,
-    } as any,
-    connectionLimit: 3,
-    idleTimeout: 10,
+    ssl: sslConfig,
+    connectionLimit: isDev ? 10 : 3,
+    idleTimeout: isDev ? 60 : 10,
   });
 }
 
