@@ -55,15 +55,24 @@ async function parseAndValidate(
     return { ok: false, error: err('VALIDATION', 'Módulo no soportado') };
   }
 
-  let rows: Record<string, unknown>[];
+  let rawRows: Record<string, unknown>[];
   try {
-    rows = parseExcelFile(fileBase64, config.sheetName, config.maxRows ?? 5000);
+    rawRows = parseExcelFile(fileBase64, config.sheetName, config.maxRows ?? 5000);
   } catch (e) {
     if (e instanceof ExcelParseError) {
       return { ok: false, error: err('VALIDATION', e.message) };
     }
     return { ok: false, error: err('UNKNOWN', 'Error al procesar el archivo') };
   }
+
+  // Map Excel header labels → internal field keys so validators and error builders use col.key
+  const rows = rawRows.map((row) => {
+    const out: Record<string, unknown> = {};
+    for (const col of config.columns) {
+      out[col.key] = row[col.header];
+    }
+    return out;
+  });
 
   const { validRows, errors: typeErrors, rowNumbers } = validateRows(rows, config.columns);
 
