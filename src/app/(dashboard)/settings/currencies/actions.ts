@@ -164,7 +164,7 @@ export async function createCurrencyAction(
 
   let dto: CreateCurrencyDTO;
   try {
-    dto = (await currencyCreateSchema.validate(input, { abortEarly: false })) as CreateCurrencyDTO;
+    dto = (await currencyCreateSchema.validate(input, { abortEarly: false, stripUnknown: true })) as CreateCurrencyDTO;
   } catch (e) {
     return err('VALIDATION', 'Datos inválidos', yupToFieldErrors(e));
   }
@@ -195,7 +195,7 @@ export async function updateCurrencyAction(
 
   let dto: UpdateCurrencyDTO;
   try {
-    dto = (await currencyUpdateSchema.validate(input, { abortEarly: false })) as UpdateCurrencyDTO;
+    dto = (await currencyUpdateSchema.validate(input, { abortEarly: false, stripUnknown: true })) as UpdateCurrencyDTO;
   } catch (e) {
     return err('VALIDATION', 'Datos inválidos', yupToFieldErrors(e));
   }
