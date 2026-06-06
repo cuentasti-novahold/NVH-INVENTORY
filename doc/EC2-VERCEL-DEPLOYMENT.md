@@ -549,3 +549,479 @@ aws s3 cp "${BACKUP_DIR}/${FILENAME}" "s3://<tu-bucket>/novahold-backups/${FILEN
 | `prisma/seed.ts` | Mismo cambio de mTLS en su propio `createAdapter()` |
 | `src/auth.config.ts` | Verificar/actualizar dominio guard si el tenant no es `@novahold.com` |
 | Vercel Dashboard | Build Command + 9 env vars (6 anteriores + `DB_SSL_CA`, `DB_SSL_CERT`, `DB_SSL_KEY`) |
+
+---
+
+## Parte 8 — Ciclo de migraciones: cómo afectan a producción
+
+### ¿Qué es una migración y cuándo ocurre?
+
+Cada vez que el schema de la base de datos cambia — nueva tabla, nueva columna, nuevo índice,
+cambio de tipo — Prisma genera un archivo de migración en `prisma/migrations/`. Ese archivo
+contiene el SQL que transforma la DB al nuevo estado.
+
+**Esto pasa en el desarrollo normal**: agregar un módulo, agregar un campo a un formulario,
+implementar una feature que necesita una tabla nueva.
+
+### El flujo completo cada vez que hay un cambio de schema
+
+```
+Desarrollador modifica prisma/schema.prisma
+         │
+         ▼
+npx prisma migrate dev --name <nombre>   ← corre LOCAL, genera el archivo SQL
+         │
+         ▼
+git commit + git push
+         │
+         ▼
+Vercel detecta el push → inicia build
+         │
+         ▼
+npx prisma migrate deploy                ← corre en Vercel, conecta a EC2
+         │                                 aplica el SQL pendiente a producción
+         ▼
+next build → deploy
+```
+
+> **Punto crítico**: `prisma migrate deploy` corre en cada deploy de Vercel y aplica
+> automáticamente todas las migraciones pendientes. Si falla, el deploy falla y la app
+> anterior sigue corriendo. Si pasa, el nuevo código y el nuevo schema entran juntos.
+
+### Por qué puede fallar `prisma migrate deploy` en este setup
+
+El usuario `novahold_app` tiene `REQUIRE X509` — exige certificados mTLS para conectar.
+El CLI de Prisma que corre en Vercel usa su propio conector de red y no tiene acceso a los
+certs que están en las env vars del adapter (`DB_SSL_CA`, `DB_SSL_CERT`, `DB_SSL_KEY`).
+
+**Solución**: usar un segundo usuario de MySQL sin `REQUIRE X509` exclusivamente para
+migraciones. La seguridad de este usuario descansa en la contraseña fuerte — no en mTLS.
+
+### 8.1 Crear el usuario de migraciones (una sola vez, permanente)
+
+En EC2 vía `sudo mysql`:
+
+```sql
+USE novahold;
+
+CREATE USER 'novahold_migrate'@'%'
+  IDENTIFIED BY '<contraseña-distinta-32chars>';
+
+GRANT SELECT, INSERT, UPDATE, DELETE,
+      CREATE, ALTER, DROP, INDEX, REFERENCES
+ON novahold.* TO 'novahold_migrate'@'%';
+
+FLUSH PRIVILEGES;
+```
+
+> Este usuario debe quedarse **permanente**. Cada deploy de Vercel lo necesita para correr
+> `prisma migrate deploy`. Si lo eliminás, el próximo deploy que tenga una migración pendiente
+> fallará con P1000 (authentication failed).
+
+### 8.2 Agregar la variable de entorno en Vercel
+
+Dashboard → Settings → Environment Variables → Production:
+
+| Variable | Valor |
+|---|---|
+| `MIGRATE_DATABASE_URL` | `mysql://novahold_migrate:<PW>@13.216.111.219:3306/novahold` |
+
+> Los caracteres especiales en la contraseña deben ir percent-encoded:
+> `@` → `%40`, `#` → `%23`, `!` → `%21`
+
+### 8.3 Actualizar el build command en Vercel
+
+Dashboard → Settings → Build & Development Settings → Build Command:
+
+```bash
+npx prisma generate && DATABASE_URL=$MIGRATE_DATABASE_URL npx prisma migrate deploy && next build
+```
+
+Con esto:
+- `prisma migrate deploy` usa `novahold_migrate` (sin X509) → conecta sin certs ✓
+- La app en runtime usa `novahold_app` (con X509, desde `DATABASE_URL`) → mTLS completo ✓
+
+### 8.4 Qué hacer en cada nueva migración
+
+Cuando hay un cambio de schema en desarrollo:
+
+```bash
+# 1. Generar la migración local
+npx prisma migrate dev --name <descripcion-del-cambio>
+
+# 2. Commitear y pushear — Vercel hace el resto automáticamente
+git add prisma/
+git commit -m "feat: <descripcion>"
+git push
+```
+
+Vercel aplica la migración en producción durante el build. No hace falta intervención manual
+si el build command y el usuario de migraciones están configurados correctamente.
+
+### 8.5 Verificar que la migración se aplicó en producción
+
+En EC2 vía `sudo mysql`:
+
+```sql
+USE novahold;
+
+SELECT migration_name, finished_at, applied_steps_count
+FROM _prisma_migrations
+ORDER BY started_at DESC
+LIMIT 5;
+-- La migración más reciente debe tener finished_at con fecha y applied_steps_count = 1
+```
+
+---
+
+## Parte 9 — Crear la base de datos desde cero
+
+Para cuando la DB está completamente vacía: instancia nueva, DB reseteada, o cambio de servidor.
+
+### 9.1 Crear la DB y los usuarios (en EC2 vía `sudo mysql`)
+
+```sql
+-- Limpiar si existía algo anterior
+DROP DATABASE IF EXISTS novahold;
+
+-- Crear DB
+CREATE DATABASE novahold CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+
+-- Usuario de la app (con mTLS)
+CREATE USER 'novahold_app'@'%'
+  IDENTIFIED BY '<contraseña-32chars>'
+  REQUIRE X509;
+
+GRANT SELECT, INSERT, UPDATE, DELETE,
+      CREATE, ALTER, DROP, INDEX, REFERENCES
+ON novahold.* TO 'novahold_app'@'%';
+
+-- Usuario de migraciones (sin X509 — para Vercel build)
+CREATE USER 'novahold_migrate'@'%'
+  IDENTIFIED BY '<contraseña-distinta-32chars>';
+
+GRANT SELECT, INSERT, UPDATE, DELETE,
+      CREATE, ALTER, DROP, INDEX, REFERENCES
+ON novahold.* TO 'novahold_migrate'@'%';
+
+-- Usuario local para TablePlus vía SSH tunnel (sin X509)
+CREATE USER 'novahold_admin'@'127.0.0.1' IDENTIFIED BY '<otra-contraseña>';
+GRANT ALL ON novahold.* TO 'novahold_admin'@'127.0.0.1';
+
+FLUSH PRIVILEGES;
+```
+
+### 9.2 Aplicar todas las migraciones
+
+La DB está vacía — no tiene tablas ni la tabla `_prisma_migrations`. Al hacer deploy,
+`prisma migrate deploy` detecta que no hay historial y aplica todas las migraciones desde
+cero en orden.
+
+```bash
+# Desde tu máquina local — push para disparar el deploy
+git commit --allow-empty -m "chore: deploy on fresh db"
+git push
+```
+
+Vercel corre `prisma migrate deploy` → crea todas las tablas → registra cada migración.
+
+### 9.3 Verificar que todo quedó bien
+
+```sql
+USE novahold;
+
+-- Ver todas las tablas creadas
+SHOW TABLES;
+
+-- Ver el historial de migraciones
+SELECT migration_name, finished_at, applied_steps_count
+FROM _prisma_migrations
+ORDER BY started_at;
+-- Todas deben tener finished_at con fecha y applied_steps_count = 1
+```
+
+### 9.4 Crear el usuario inicial
+
+```sql
+USE novahold;
+
+INSERT INTO users (id, email, name, role, createdAt, updatedAt)
+VALUES (
+  UUID(),
+  'usuario.real@novahold.com',
+  'Nombre Admin',
+  'SUPER_ADMIN',
+  NOW(), NOW()
+);
+```
+
+El email debe existir en el tenant Azure AD. Ver **Parte 4** para más opciones.
+
+---
+
+## Parte 10 — Troubleshooting: Migraciones fallidas (P3009)
+
+### ¿Qué es P3009?
+
+Prisma bloquea todos los deploys si detecta una migración marcada como fallida en
+`_prisma_migrations`. El error en el build log de Vercel es:
+
+```
+Error: P3009
+migrate found failed migrations in the target database,
+new migrations will not be applied.
+```
+
+Mientras este error exista, **ningún deploy va a pasar**. Hay que resolverlo directamente
+en la DB desde la EC2.
+
+### Diagnóstico — en EC2 vía `sudo mysql`
+
+```sql
+USE novahold;
+
+SELECT migration_name, finished_at, applied_steps_count, rolled_back_at
+FROM _prisma_migrations
+ORDER BY started_at;
+```
+
+Una migración fallida tiene: `finished_at = NULL` y `applied_steps_count = 0`.
+
+### Paso 1 — Verificar si el cambio se aplicó realmente
+
+Para una migración de índice:
+```sql
+SHOW INDEX FROM <tabla> WHERE Key_name = '<nombre_indice>';
+-- Vacío = el cambio NO existe en la DB
+-- Con resultado = el cambio SÍ existe en la DB
+```
+
+Para una migración de tabla o columna:
+```sql
+SHOW TABLES LIKE '<nombre_tabla>';
+SHOW COLUMNS FROM <tabla> LIKE '<nombre_columna>';
+```
+
+### Paso 2a — El cambio NO existe: aplicarlo y marcar como aplicado
+
+```sql
+-- Aplicar el cambio manualmente (ejemplo: índice)
+CREATE INDEX <nombre_indice> ON <tabla>(<columna>);
+
+-- Marcar la migración como aplicada
+UPDATE _prisma_migrations
+SET finished_at = NOW(3), applied_steps_count = 1, logs = NULL, rolled_back_at = NULL
+WHERE migration_name = '<nombre_exacto_de_la_migracion>';
+```
+
+### Paso 2b — El cambio SÍ existe: solo marcar como aplicado
+
+```sql
+UPDATE _prisma_migrations
+SET finished_at = NOW(3), applied_steps_count = 1, logs = NULL, rolled_back_at = NULL
+WHERE migration_name = '<nombre_exacto_de_la_migracion>';
+```
+
+### Paso 3 — Verificar que quedó limpio
+
+```sql
+SELECT migration_name, finished_at, applied_steps_count
+FROM _prisma_migrations
+ORDER BY started_at;
+-- Todas las filas deben tener finished_at con fecha y applied_steps_count = 1
+```
+
+### Paso 4 — Redeploy en Vercel
+
+Dashboard → Deployments → último deploy fallido → **Redeploy**.
+No hace falta un nuevo push.
+
+### Resumen del flujo de troubleshooting
+
+```
+Build Vercel falla con P3009
+         │
+         ▼
+SSH a EC2 → sudo mysql → USE novahold
+         │
+         ▼
+Verificar qué migración tiene finished_at = NULL
+         │
+         ├── El cambio NO existe en DB → aplicarlo manualmente → UPDATE _prisma_migrations
+         │
+         └── El cambio SÍ existe en DB → UPDATE _prisma_migrations directamente
+         │
+         ▼
+Redeploy en Vercel → build pasa
+```
+
+---
+
+## Parte 11 — Historial completo de la base de datos
+
+Esta sección documenta todos los cambios aplicados a la DB desde el inicio del proyecto,
+en orden cronológico. Sirve como referencia para entender el estado actual y para reconstruir
+la DB desde cero si fuera necesario.
+
+> **Para crear la DB desde cero no hace falta correr estos comandos manualmente.**
+> `prisma migrate deploy` en el build de Vercel los aplica todos en orden automáticamente.
+> Esta sección es solo referencia de QUÉ existe y POR QUÉ.
+
+---
+
+### Migración 1 — `20260421130232_init`
+**Fecha**: 21 de abril de 2026
+**Tipo**: Schema inicial completo
+**Cómo se aplicó**: `prisma migrate deploy` en el primer deploy de Vercel
+
+Crea las **18 tablas** del ERP y todas sus relaciones:
+
+#### Auth (NextAuth v5 + Azure AD)
+| Tabla | Propósito |
+|-------|-----------|
+| `users` | Usuarios del sistema con rol RBAC (`SUPER_ADMIN` → `VIEWER`) |
+| `accounts` | Cuentas OAuth vinculadas (Azure AD) |
+| `sessions` | Sesiones activas (usada con strategy `database`) |
+| `verification_tokens` | Tokens de verificación de email |
+
+#### Localización
+| Tabla | Propósito |
+|-------|-----------|
+| `countries` | Países |
+| `cities` | Ciudades → pertenecen a un país |
+| `locations` | Sedes/oficinas → pertenecen a una ciudad |
+| `bodegas` | Bodegas/almacenes → pertenecen a una sede |
+
+#### Organización
+| Tabla | Propósito |
+|-------|-----------|
+| `departments` | Departamentos de la empresa |
+| `employees` | Empleados con ciudad, sede y departamento asignados |
+
+#### Financiero
+| Tabla | Propósito |
+|-------|-----------|
+| `currencies` | Monedas (COP base, USD, etc.) |
+| `exchange_rates` | Tasas de cambio históricas por moneda |
+
+#### Inventario de Activos
+| Tabla | Propósito |
+|-------|-----------|
+| `categories` | Categorías de activos con prefijo y configuración de campos |
+| `assets` | Tabla única de activos físicos — laptops, celulares, monitores, etc. |
+| `assignments` | Asignaciones de activos a empleados (activa / devuelta / transferida) |
+| `depreciation_snapshots` | Snapshots anuales de depreciación contable |
+
+#### Operaciones
+| Tabla | Propósito |
+|-------|-----------|
+| `maintenances` | Registros de mantenimiento por activo |
+| `audit_logs` | Log inmutable de cambios en entidades del sistema |
+| `asset_movements` | Kardex de movimientos físicos de activos entre sedes/bodegas |
+| `import_logs` | Historial de importaciones masivas vía Excel |
+
+#### Índices creados en esta migración
+```
+users_email_key                              (único)
+users_employeeId_key                         (único)
+accounts_provider_providerAccountId_key      (único)
+sessions_sessionToken_key                    (único)
+countries_name_key / countries_code_key      (únicos)
+cities_name_countryId_key                    (único compuesto)
+departments_name_key                         (único)
+employees_email_key                          (único)
+currencies_code_key                          (único)
+exchange_rates_currencyId_effectiveDate_idx  (compuesto)
+categories_name_key / categories_prefix_key  (únicos)
+assets_assetCode_key / assets_serialNumber_key (únicos)
+depreciation_snapshots_assetId_snapshotDate_idx (compuesto)
+audit_logs_entityId_entity_idx               (compuesto)
+audit_logs_assetId_idx
+audit_logs_userId_idx
+asset_movements_assetId_idx
+asset_movements_toLocationId_idx
+asset_movements_movedAt_idx
+```
+
+---
+
+### Migración 2 — `20260606000001_add_audit_log_created_at_index`
+**Fecha**: 6 de junio de 2026
+**Tipo**: Índice de performance
+**Cómo se aplicó**: Manually via `UPDATE _prisma_migrations` en EC2 + `CREATE INDEX` directo
+(el `prisma migrate deploy` en Vercel falló por REQUIRE X509 — ver Parte 10)
+
+```sql
+CREATE INDEX IF NOT EXISTS `audit_logs_createdAt_idx` ON `audit_logs`(`createdAt`);
+```
+
+**Por qué**: El visor de audit logs pagina por `createdAt DESC`. Sin índice, cada consulta
+hacía un full scan de la tabla. A medida que la tabla crece con los registros de auditoría
+de todas las entidades, este índice es crítico para mantener la performance.
+
+**Contexto**: Esta migración fue parte del cambio `full-audit-log` que expandió el sistema
+de auditoría para cubrir todas las entidades del ERP (ver siguiente sección).
+
+---
+
+### Cambio de comportamiento — `full-audit-log` (6 de junio de 2026)
+**Tipo**: Cambio de código — NO requirió migración de schema
+**Cómo se aplicó**: Deploy normal de Vercel
+
+Este cambio **no modificó el schema** pero sí cambió radicalmente qué se escribe en
+`audit_logs`. Antes: solo los movimientos entre bodegas. Después: todas las mutaciones
+del ERP.
+
+#### Qué entidades ahora escriben en `audit_logs`
+
+| Entidad | Operaciones auditadas | Acción registrada |
+|---------|----------------------|-------------------|
+| `assets` | crear, editar, desactivar, eliminar | `CREATE` / `UPDATE` / `DEACTIVATE` / `DELETE` |
+| `assignments` | asignar, devolver, transferir, eliminar | `CREATE` / `RETURNED` / `TRANSFERRED` / `DELETE` |
+| `employees` | crear, editar, desactivar, eliminar | `CREATE` / `UPDATE` / `DEACTIVATE` / `DELETE` |
+| `maintenances` | crear, editar, eliminar | `CREATE` / `UPDATE` / `DELETE` |
+| `users` | cambio de rol | `ROLE_CHANGED` |
+| `asset_movements` | crear movimiento | `MOVED` (ya existía, ahora completo con ip/userAgent) |
+
+#### Campos que ahora se populan correctamente
+Antes de este cambio, `ip` y `userAgent` en `audit_logs` eran siempre `NULL`.
+Ahora se capturan en cada operación via `headers()` de Next.js.
+
+#### Helper centralizado
+Toda escritura al audit log pasa por `src/lib/audit.ts` — nunca directamente con
+`prisma.auditLog.create`. Esto garantiza consistencia y evita que futuras features
+olviden registrar el audit.
+
+---
+
+### Estado actual de la DB (junio 2026)
+
+```
+18 tablas
+21 índices (incluyendo audit_logs_createdAt_idx)
+2 migraciones aplicadas
+Audit log activo en 6 entidades / 16 tipos de operación
+```
+
+### Verificar estado completo desde MySQL (EC2)
+
+```sql
+USE novahold;
+
+-- Ver todas las tablas
+SHOW TABLES;
+
+-- Ver migraciones aplicadas
+SELECT migration_name, finished_at, applied_steps_count
+FROM _prisma_migrations
+ORDER BY started_at;
+
+-- Ver índices de audit_logs
+SHOW INDEX FROM audit_logs;
+
+-- Verificar que el audit log está recibiendo datos
+SELECT entity, action, COUNT(*) as total
+FROM audit_logs
+GROUP BY entity, action
+ORDER BY entity, action;
+```
