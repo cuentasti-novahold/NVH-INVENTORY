@@ -64,17 +64,24 @@ pnpm dev
 
 ```env
 # Base de datos
-DATABASE_URL="mysql://user:password@localhost:3306/novahold_inventory"
+DATABASE_URL="mysql://user:password@localhost:3306/novahold"
+
+# Certificados mTLS (producción — EC2)
+DB_SSL_CA="-----BEGIN CERTIFICATE-----\n..."
+DB_SSL_CERT="-----BEGIN CERTIFICATE-----\n..."
+DB_SSL_KEY="-----BEGIN RSA PRIVATE KEY-----\n..."
 
 # NextAuth
-AUTH_SECRET="<string-aleatorio-32-chars>"
-AUTH_URL="http://localhost:3000"
+AUTH_SECRET="<openssl rand -base64 33>"
+NEXTAUTH_URL="http://localhost:3000"
 
 # Azure AD
-AUTH_AZURE_AD_ID="<client-id>"
-AUTH_AZURE_AD_SECRET="<client-secret>"
-AUTH_AZURE_AD_TENANT_ID="<tenant-id>"
+AZURE_AD_CLIENT_ID="<client-id>"
+AZURE_AD_CLIENT_SECRET="<client-secret>"
+AZURE_AD_TENANT_ID="<tenant-id>"
 ```
+
+> En desarrollo, `DB_SSL_CA/CERT/KEY` no son necesarias — la conexión sin TLS aplica solo en `NODE_ENV=development`.
 
 ---
 
@@ -98,17 +105,41 @@ npx prisma studio                         # GUI de base de datos
 
 ## Roles y permisos (RBAC)
 
-| Rol | Capacidades |
-|-----|-------------|
-| `SUPER_ADMIN` | Acceso total + gestión de usuarios + configuración del sistema |
-| `ADMIN` | CRUD completo de activos, empleados y asignaciones |
-| `MANAGER` | Lectura total + crear asignaciones en su área |
-| `TECHNICIAN` | Crear/editar activos + registrar mantenimientos |
-| `VIEWER` | Solo lectura de activos y empleados |
+La jerarquía de roles es `SUPER_ADMIN > ADMIN > MANAGER > TECHNICIAN > VIEWER`. El rol por defecto al primer login es `VIEWER` — un `SUPER_ADMIN` lo cambia desde `/settings/users`.
 
-> El rol por defecto al primer login es `VIEWER`. Un `SUPER_ADMIN` lo sube desde `/settings/users`.
+### Matriz de permisos por recurso
 
-Solo pueden acceder usuarios con email `@novahold.com` (restricción de dominio en NextAuth).
+| Recurso | SUPER_ADMIN | ADMIN | MANAGER | TECHNICIAN | VIEWER |
+|---------|:-----------:|:-----:|:-------:|:----------:|:------:|
+| **Activos** | todo | todo | leer | leer, crear, editar | leer |
+| **Empleados** | todo | todo | leer | leer | leer |
+| **Asignaciones** | todo | todo | crear | — | — |
+| **Mantenimiento** | todo | todo | leer | leer, crear, editar | leer |
+| **Traslados** | todo | todo | leer, crear | leer, crear | leer |
+| **Categorías** | todo | todo | leer | leer | leer |
+| **Sedes / bodegas** | todo | todo | leer | leer | leer |
+| **Departamentos** | todo | todo | leer | leer | leer |
+| **Monedas** | todo | todo | leer | leer | leer |
+| **Usuarios** | todo | — | — | — | — |
+
+> **todo** = leer + crear + editar + eliminar  
+> **—** = sin acceso (el Server Action devuelve `FORBIDDEN`)
+
+### Detalle por rol
+
+**`SUPER_ADMIN`** — Acceso irrestricto a todos los recursos y acciones. Único rol que puede gestionar usuarios y cambiar roles.
+
+**`ADMIN`** — CRUD completo sobre activos, empleados, asignaciones, categorías, sedes, mantenimiento, traslados, monedas y departamentos. No puede gestionar usuarios.
+
+**`MANAGER`** — Lectura de todos los recursos operativos + puede crear asignaciones y traslados. No puede crear ni editar activos, empleados ni mantenimientos.
+
+**`TECHNICIAN`** — Orientado a operaciones de campo: puede leer y registrar activos, crear y actualizar mantenimientos, registrar traslados. Puede ver empleados pero no modificarlos. No puede eliminar nada ni gestionar asignaciones.
+
+**`VIEWER`** — Solo lectura de activos, empleados, categorías, sedes, traslados, mantenimientos, monedas y departamentos. No puede crear ni modificar nada.
+
+### Acceso al sistema
+
+Solo pueden autenticarse usuarios cuya cuenta Microsoft pertenezca al tenant Azure AD configurado en `AZURE_AD_TENANT_ID`. La verificación es criptográfica (claim `tid`) — no se puede falsificar con un email similar.
 
 ---
 
@@ -373,9 +404,10 @@ El componente `ExcelExportButton` decodifica el base64 y dispara la descarga nat
 
 ## Autenticación y acceso
 
-- Proveedor: Azure AD — solo emails `@novahold.com`
+- Proveedor: Azure AD (Microsoft Entra ID) vía NextAuth v5
+- Acceso restringido al tenant configurado en `AZURE_AD_TENANT_ID` — verificación por claim criptográfico `tid`
 - Primer login → rol `VIEWER` asignado automáticamente
-- `SUPER_ADMIN` cambia roles desde `/settings/users`
+- `SUPER_ADMIN` cambia roles desde `/settings/users` — el cambio aplica en el siguiente login o al refrescar la sesión
 - Middleware protege todas las rutas `/(dashboard)/*`
 
 ---
