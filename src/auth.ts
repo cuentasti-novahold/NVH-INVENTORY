@@ -58,8 +58,35 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
   callbacks: {
     ...authConfig.callbacks,
     session: sessionCallback as never,
-    jwt({ token, user }: { token: JWT; user?: { role: UserRole } }) {
-      if (user?.role) token.role = user.role;
+    async jwt({ token, user, trigger }: {
+      token: JWT & { role?: UserRole };
+      user?: { role?: UserRole };
+      trigger?: 'signIn' | 'signUp' | 'update';
+    }) {
+      // VERIFIED: token.email is populated by NextAuth v5 MicrosoftEntraID from
+      // the OIDC email claim (stable Entra identifier). Using it as the DB lookup
+      // key per ADR-1. token.sub is the Entra OID and does not equal User.id under
+      // the JWT strategy with PrismaAdapter.
+      //
+      // First sign-in: NextAuth passes `user` once. Trust the role mapped there.
+      if (user?.role) {
+        token.role = user.role;
+        return token;
+      }
+      // Re-hydrate from DB when role is missing (the first-login VIEWER pin)
+      // or when the session was explicitly updated (admin changed the role).
+      if (!token.role || trigger === 'update') {
+        try {
+          const dbUser = await prisma.user.findUnique({
+            where: { email: token.email ?? '' },
+            select: { role: true },
+          });
+          token.role = dbUser?.role ?? 'VIEWER';
+        } catch {
+          // Never hard-fail auth on a DB hiccup: keep existing role, else least-privilege.
+          token.role = token.role ?? 'VIEWER';
+        }
+      }
       return token;
     },
   },

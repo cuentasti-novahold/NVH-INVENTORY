@@ -32,10 +32,25 @@ vi.mock('@/lib/prisma', () => ({
   },
 }));
 vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }));
+// Capture the real hasPermission in a vi.hoisted block so it is available inside
+// the vi.mock factory (which is hoisted before all other code).
+const { realHasPermission } = vi.hoisted(() => {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const realHasPermission = { fn: null as any };
+  return { realHasPermission };
+});
+vi.mock('@/lib/permissions', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/permissions')>();
+  realHasPermission.fn = actual.hasPermission;
+  // Wrap in a vi.fn so individual tests can override with mockReturnValueOnce(false).
+  // Default implementation delegates to the real function so role-based tests still work.
+  return { ...actual, hasPermission: vi.fn().mockImplementation(actual.hasPermission) };
+});
 
 import { auth } from '@/auth';
 import { prisma } from '@/lib/prisma';
 import { revalidatePath } from 'next/cache';
+import { hasPermission } from '@/lib/permissions';
 import {
   listEmployeesAction,
   searchEmployeesAction,
@@ -48,6 +63,7 @@ import {
 } from '../actions';
 
 const mockAuth = auth as ReturnType<typeof vi.fn>;
+const mockHasPermission = hasPermission as ReturnType<typeof vi.fn>;
 const mockEmployee = prisma.employee as Record<string, ReturnType<typeof vi.fn>>;
 const mockDepartment = prisma.department as Record<string, ReturnType<typeof vi.fn>>;
 const mockCity = prisma.city as Record<string, ReturnType<typeof vi.fn>>;
@@ -59,6 +75,12 @@ const mockTransaction = prisma.$transaction as ReturnType<typeof vi.fn>;
 function makeSession(role: string) {
   return { user: { id: 'user-1', role } };
 }
+
+// Restore real hasPermission after each vi.clearAllMocks() call resets the implementation.
+// vi.clearAllMocks() in vitest v4 resets mockImplementation, so we restore it globally.
+beforeEach(() => {
+  mockHasPermission.mockImplementation(realHasPermission.fn);
+});
 
 const sampleEmployee = {
   id: 'emp-1',
@@ -92,11 +114,12 @@ describe('listEmployeesAction', () => {
     if (!result.ok) expect(result.code).toBe('FORBIDDEN');
   });
 
-  it('returns FORBIDDEN for TECHNICIAN (no employees:read)', async () => {
+  it('returns ok for TECHNICIAN (has employees:read)', async () => {
     mockAuth.mockResolvedValue(makeSession('TECHNICIAN'));
+    mockEmployee.findUnique.mockResolvedValue(null);
+    mockTransaction.mockResolvedValue([[sampleEmployee], 1]);
     const result = await listEmployeesAction();
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.code).toBe('FORBIDDEN');
+    expect(result.ok).toBe(true);
   });
 
   it('returns ok with cursor-paginated rows for VIEWER', async () => {
@@ -153,11 +176,11 @@ describe('listEmployeesAction', () => {
 // ─── searchEmployeesAction ────────────────────────────────────────────────────
 
 describe('searchEmployeesAction', () => {
-  it('returns UNAUTHORIZED when unauthenticated', async () => {
+  it('returns FORBIDDEN when unauthenticated', async () => {
     mockAuth.mockResolvedValue(null);
     const result = await searchEmployeesAction('carlos');
     expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.code).toBe('UNAUTHORIZED');
+    if (!result.ok) expect(result.code).toBe('FORBIDDEN');
   });
 
   it('returns items shaped { code: id, value: "Name — email" }', async () => {
@@ -179,11 +202,11 @@ describe('searchEmployeesAction', () => {
 // ─── searchDepartmentsAction ──────────────────────────────────────────────────
 
 describe('searchDepartmentsAction', () => {
-  it('returns UNAUTHORIZED when unauthenticated', async () => {
+  it('returns FORBIDDEN when unauthenticated', async () => {
     mockAuth.mockResolvedValue(null);
     const result = await searchDepartmentsAction('TI');
     expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.code).toBe('UNAUTHORIZED');
+    if (!result.ok) expect(result.code).toBe('FORBIDDEN');
   });
 
   it('returns departments shaped { code: id, value: name }', async () => {
@@ -380,11 +403,12 @@ describe('getEmployeeAssignmentReportAction', () => {
     if (!result.ok) expect(result.code).toBe('FORBIDDEN');
   });
 
-  it('returns FORBIDDEN for TECHNICIAN (no employees:read)', async () => {
+  it('returns ok for TECHNICIAN (has employees:read)', async () => {
     mockAuth.mockResolvedValue(makeSession('TECHNICIAN'));
+    mockEmployee.findUnique.mockResolvedValue({ id: 'emp-abc12345', fullName: 'Test', email: 'test@novahold.com', employeeCode: 'EMP-001', department: { name: 'IT' }, position: 'Dev', isActive: true, createdAt: new Date(), updatedAt: new Date(), departmentId: 'd1', managerId: null, phone: null, address: null, notes: null, importedAt: null });
+    mockAssignment.findMany.mockResolvedValue([]);
     const result = await getEmployeeAssignmentReportAction('emp-abc12345');
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.code).toBe('FORBIDDEN');
+    expect(result.ok).toBe(true);
   });
 
   it('returns NOT_FOUND for unknown employeeId', async () => {
@@ -431,6 +455,38 @@ describe('getEmployeeAssignmentReportAction', () => {
       expect(a.deliveredByName).toBe('Carlos Admin');
       expect(a.notes).toBe('Equipo nuevo');
     }
+  });
+});
+
+// ─── FORBIDDEN guard tests (T-08-RED) ────────────────────────────────────────
+
+describe('FORBIDDEN guard — searchEmployeesAction', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('returns FORBIDDEN and does not call prisma.employee.findMany when hasPermission returns false', async () => {
+    mockAuth.mockResolvedValue({ user: { id: 'u1', role: 'VIEWER' } });
+    mockHasPermission.mockReturnValueOnce(false);
+    const r = await searchEmployeesAction('carlos');
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.code).toBe('FORBIDDEN');
+    expect(mockEmployee.findMany).not.toHaveBeenCalled();
+  });
+});
+
+describe('FORBIDDEN guard — searchDepartmentsAction', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('returns FORBIDDEN and does not call prisma.department.findMany when hasPermission returns false', async () => {
+    mockAuth.mockResolvedValue({ user: { id: 'u1', role: 'VIEWER' } });
+    mockHasPermission.mockReturnValueOnce(false);
+    const r = await searchDepartmentsAction('TI');
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.code).toBe('FORBIDDEN');
+    expect(mockDepartment.findMany).not.toHaveBeenCalled();
   });
 });
 

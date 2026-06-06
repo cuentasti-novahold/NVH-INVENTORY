@@ -27,14 +27,10 @@ export const authConfig: NextAuthConfig = {
         return process.env.NODE_ENV === 'development';
       }
       if (account?.provider === 'microsoft-entra-id') {
-        const email =
-          profile?.email ??
-          (profile as { preferred_username?: string } | undefined)
-            ?.preferred_username;
-        return (
-          typeof email === 'string' &&
-          email.toLowerCase().endsWith('@novahold.com')
-        );
+        const expectedTid = process.env.AZURE_AD_TENANT_ID;
+        if (!expectedTid) return false; // fail closed: never open on missing config
+        const tid = (profile as { tid?: string } | undefined)?.tid;
+        return tid === expectedTid;
       }
       return false;
     },

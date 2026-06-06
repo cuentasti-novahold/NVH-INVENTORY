@@ -9,3 +9,10 @@ declare module 'next-auth' {
     role: UserRole;
   }
 }
+
+declare module 'next-auth/jwt' {
+  interface JWT {
+    role: UserRole;
+    email?: string | null;
+  }
+}

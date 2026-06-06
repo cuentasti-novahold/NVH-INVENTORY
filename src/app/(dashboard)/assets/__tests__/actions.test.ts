@@ -27,14 +27,30 @@ vi.mock('@/lib/prisma', () => ({
   },
 }));
 vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }));
+// Capture the real hasPermission in a vi.hoisted block so it is available inside
+// the vi.mock factory (which is hoisted before all other code).
+const { realHasPermission } = vi.hoisted(() => {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const realHasPermission = { fn: null as any };
+  return { realHasPermission };
+});
+vi.mock('@/lib/permissions', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/permissions')>();
+  realHasPermission.fn = actual.hasPermission;
+  // Wrap in a vi.fn so individual tests can override with mockReturnValueOnce(false).
+  // Default implementation delegates to the real function so role-based tests still work.
+  return { ...actual, hasPermission: vi.fn().mockImplementation(actual.hasPermission) };
+});
 
 import { auth } from '@/auth';
 import { prisma } from '@/lib/prisma';
 import { revalidatePath } from 'next/cache';
+import { hasPermission } from '@/lib/permissions';
 import {
   listAssetsAction,
   searchAssetsAction,
   getCategoryFieldConfigAction,
+  getAssetLocationAction,
   createAssetAction,
   updateAssetAction,
   deactivateAssetAction,
@@ -48,9 +64,16 @@ import {
 } from '../actions';
 
 const mockAuth = auth as ReturnType<typeof vi.fn>;
+const mockHasPermission = hasPermission as ReturnType<typeof vi.fn>;
 const mockAsset = prisma.asset as unknown as Record<string, ReturnType<typeof vi.fn>>;
 const mockCategory = prisma.category as unknown as Record<string, ReturnType<typeof vi.fn>>;
 const mockImportLog = prisma.importLog as unknown as Record<string, ReturnType<typeof vi.fn>>;
+
+// Restore real hasPermission after each vi.clearAllMocks() call resets the implementation.
+// vi.clearAllMocks() in vitest v4 resets mockImplementation, so we restore it globally.
+beforeEach(() => {
+  mockHasPermission.mockImplementation(realHasPermission.fn);
+});
 
 const adminSession = { user: { id: 'u1', role: 'ADMIN' } };
 const viewerSession = { user: { id: 'u2', role: 'VIEWER' } };
@@ -161,11 +184,11 @@ describe('listAssetsAction', () => {
 describe('searchAssetsAction', () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it('returns UNAUTHORIZED when not logged in', async () => {
+  it('returns FORBIDDEN when not logged in', async () => {
     mockAuth.mockResolvedValue(null);
     const r = await searchAssetsAction('PC');
     expect(r.ok).toBe(false);
-    expect((r as { ok: false; code: string }).code).toBe('UNAUTHORIZED');
+    expect((r as { ok: false; code: string }).code).toBe('FORBIDDEN');
   });
 
   it('returns matching assets as autocomplete options', async () => {
@@ -379,7 +402,11 @@ describe('deleteAssetAction', () => {
 // ─── importAssetsAction ───────────────────────────────────────────────────
 
 describe('importAssetsAction', () => {
-  beforeEach(() => vi.resetAllMocks());
+  beforeEach(() => {
+    vi.resetAllMocks();
+    // Restore real hasPermission after vi.resetAllMocks() clears the implementation.
+    mockHasPermission.mockImplementation(realHasPermission.fn);
+  });
 
   it('returns FORBIDDEN for VIEWER', async () => {
     mockAuth.mockResolvedValue(viewerSession);
@@ -458,11 +485,11 @@ const baseAssetWithAssignments = {
 describe('getAssetDetailAction', () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it('returns UNAUTHORIZED when not authenticated', async () => {
+  it('returns FORBIDDEN when not authenticated', async () => {
     mockAuth.mockResolvedValue(null);
     const r = await getAssetDetailAction('NVH-PC-00001');
     expect(r.ok).toBe(false);
-    expect((r as { ok: false; code: string }).code).toBe('UNAUTHORIZED');
+    expect((r as { ok: false; code: string }).code).toBe('FORBIDDEN');
   });
 
   it('returns NOT_FOUND when asset does not exist', async () => {
@@ -499,11 +526,11 @@ describe('getAssetDetailAction', () => {
 describe('exportInventoryAction', () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it('returns UNAUTHORIZED when not authenticated', async () => {
+  it('returns FORBIDDEN when not authenticated', async () => {
     mockAuth.mockResolvedValue(null);
     const r = await exportInventoryAction();
     expect(r.ok).toBe(false);
-    expect((r as { ok: false; code: string }).code).toBe('UNAUTHORIZED');
+    expect((r as { ok: false; code: string }).code).toBe('FORBIDDEN');
   });
 
   it('returns base64 xlsx string for authenticated user', async () => {
@@ -523,11 +550,11 @@ describe('exportInventoryAction', () => {
 describe('exportDepreciationAction', () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it('returns UNAUTHORIZED when not authenticated', async () => {
+  it('returns FORBIDDEN when not authenticated', async () => {
     mockAuth.mockResolvedValue(null);
     const r = await exportDepreciationAction();
     expect(r.ok).toBe(false);
-    expect((r as { ok: false; code: string }).code).toBe('UNAUTHORIZED');
+    expect((r as { ok: false; code: string }).code).toBe('FORBIDDEN');
   });
 
   it('returns base64 xlsx with depreciation data', async () => {
@@ -553,11 +580,11 @@ describe('exportDepreciationAction', () => {
 describe('exportExpiringAction', () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it('returns UNAUTHORIZED when not authenticated', async () => {
+  it('returns FORBIDDEN when not authenticated', async () => {
     mockAuth.mockResolvedValue(null);
     const r = await exportExpiringAction(6);
     expect(r.ok).toBe(false);
-    expect((r as { ok: false; code: string }).code).toBe('UNAUTHORIZED');
+    expect((r as { ok: false; code: string }).code).toBe('FORBIDDEN');
   });
 
   it('returns base64 xlsx with filtered assets', async () => {
@@ -636,5 +663,113 @@ describe('getAssetHistoryAction', () => {
     expect(r.ok).toBe(true);
     if (!r.ok) return;
     expect(r.data.asset.activeAssignment?.employeeName).toBe('Carlos López');
+  });
+});
+
+// ─── FORBIDDEN guard tests (T-07-RED) ────────────────────────────────────────
+// These tests verify that hasPermission is called and short-circuits before DB.
+
+describe('FORBIDDEN guard — searchAssetsAction', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('returns FORBIDDEN and does not call prisma.asset.findMany when hasPermission returns false', async () => {
+    mockAuth.mockResolvedValue(viewerSession);
+    mockHasPermission.mockReturnValueOnce(false);
+    const r = await searchAssetsAction('laptop');
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.code).toBe('FORBIDDEN');
+    expect(mockAsset.findMany).not.toHaveBeenCalled();
+  });
+});
+
+describe('FORBIDDEN guard — getCategoryFieldConfigAction', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('returns FORBIDDEN and does not call prisma.category.findUnique when hasPermission returns false', async () => {
+    mockAuth.mockResolvedValue(viewerSession);
+    mockHasPermission.mockReturnValueOnce(false);
+    const r = await getCategoryFieldConfigAction('cat1');
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.code).toBe('FORBIDDEN');
+    expect(mockCategory.findUnique).not.toHaveBeenCalled();
+  });
+});
+
+describe('FORBIDDEN guard — getAssetLocationAction', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('returns FORBIDDEN and does not call prisma.asset.findUnique when hasPermission returns false', async () => {
+    mockAuth.mockResolvedValue(viewerSession);
+    mockHasPermission.mockReturnValueOnce(false);
+    const r = await getAssetLocationAction('asset1');
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.code).toBe('FORBIDDEN');
+    expect(mockAsset.findUnique).not.toHaveBeenCalled();
+  });
+});
+
+describe('FORBIDDEN guard — getAssetDetailAction', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('returns FORBIDDEN and does not call prisma.asset.findFirst when hasPermission returns false', async () => {
+    mockAuth.mockResolvedValue(viewerSession);
+    mockHasPermission.mockReturnValueOnce(false);
+    const r = await getAssetDetailAction('NVH-PC-00001');
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.code).toBe('FORBIDDEN');
+    expect(mockAsset.findFirst).not.toHaveBeenCalled();
+  });
+});
+
+describe('FORBIDDEN guard — exportInventoryAction', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('returns FORBIDDEN and does not call prisma.asset.findMany when hasPermission returns false', async () => {
+    mockAuth.mockResolvedValue(viewerSession);
+    mockHasPermission.mockReturnValueOnce(false);
+    const r = await exportInventoryAction();
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.code).toBe('FORBIDDEN');
+    expect(mockAsset.findMany).not.toHaveBeenCalled();
+  });
+});
+
+describe('FORBIDDEN guard — exportDepreciationAction', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('returns FORBIDDEN and does not call prisma.asset.findMany when hasPermission returns false', async () => {
+    mockAuth.mockResolvedValue(viewerSession);
+    mockHasPermission.mockReturnValueOnce(false);
+    const r = await exportDepreciationAction();
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.code).toBe('FORBIDDEN');
+    expect(mockAsset.findMany).not.toHaveBeenCalled();
+  });
+});
+
+describe('FORBIDDEN guard — exportExpiringAction', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('returns FORBIDDEN and does not call prisma.asset.findMany when hasPermission returns false', async () => {
+    mockAuth.mockResolvedValue(viewerSession);
+    mockHasPermission.mockReturnValueOnce(false);
+    const r = await exportExpiringAction(6);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.code).toBe('FORBIDDEN');
+    expect(mockAsset.findMany).not.toHaveBeenCalled();
   });
 });

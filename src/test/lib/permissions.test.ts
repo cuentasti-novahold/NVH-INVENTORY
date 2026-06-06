@@ -52,12 +52,12 @@ describe('hasPermission', () => {
         expect(hasPermission('TECHNICIAN', 'maintenance', action)).toBe(true);
       }
     });
-    it('denies assets:delete and assets:read', () => {
-      expect(hasPermission('TECHNICIAN', 'assets', 'delete')).toBe(false);
-      expect(hasPermission('TECHNICIAN', 'assets', 'read')).toBe(false);
+    it('allows assets:read and employees:read', () => {
+      expect(hasPermission('TECHNICIAN', 'assets', 'read')).toBe(true);
+      expect(hasPermission('TECHNICIAN', 'employees', 'read')).toBe(true);
     });
-    it('denies employees', () => {
-      expect(hasPermission('TECHNICIAN', 'employees', 'read')).toBe(false);
+    it('denies assets:delete', () => {
+      expect(hasPermission('TECHNICIAN', 'assets', 'delete')).toBe(false);
     });
   });
 

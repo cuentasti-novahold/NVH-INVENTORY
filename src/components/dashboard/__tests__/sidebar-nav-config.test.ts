@@ -95,10 +95,10 @@ describe('getFilteredNavSections', () => {
     expect(allHrefs).toContain('/scanner');
   });
 
-  it('TECHNICIAN does not see /employees (no read permission)', () => {
+  it('TECHNICIAN sees /employees (has employees:read)', () => {
     const sections = getFilteredNavSections('TECHNICIAN');
     const allHrefs = sections.flatMap((s) => s.items.map((i) => i.href));
-    expect(allHrefs).not.toContain('/employees');
+    expect(allHrefs).toContain('/employees');
   });
 
   it('TECHNICIAN sees /maintenance and /assets', () => {

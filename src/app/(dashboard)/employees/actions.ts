@@ -175,7 +175,8 @@ export async function searchEmployeesAction(
   query: string,
 ): Promise<ActionResult<{ code: string; value: string }[]>> {
   const session = await auth();
-  if (!session?.user) return err('UNAUTHORIZED', 'No autenticado');
+  if (!session?.user || !hasPermission(session.user.role as Role, 'employees', 'read'))
+    return err('FORBIDDEN', 'Sin permiso');
   const q = query.trim();
   const rows = await prisma.employee.findMany({
     where: {
@@ -198,7 +199,8 @@ export async function searchDepartmentsAction(
   query: string,
 ): Promise<ActionResult<{ code: string; value: string }[]>> {
   const session = await auth();
-  if (!session?.user) return err('UNAUTHORIZED', 'No autenticado');
+  if (!session?.user || !hasPermission(session.user.role as Role, 'departments', 'read'))
+    return err('FORBIDDEN', 'Sin permiso');
   const rows = await prisma.department.findMany({
     where: query.trim() ? { name: { contains: query.trim() } } : undefined,
     select: { id: true, name: true },

@@ -203,7 +203,8 @@ export async function searchAssetsAction(
   query: string,
 ): Promise<ActionResult<{ code: string; value: string }[]>> {
   const session = await auth();
-  if (!session?.user) return err('UNAUTHORIZED', 'No autenticado');
+  if (!session?.user || !hasPermission(session.user.role as Role, 'assets', 'read'))
+    return err('FORBIDDEN', 'Sin permiso');
   const q = query.trim();
   const rows = await prisma.asset.findMany({
     where: {
@@ -239,7 +240,8 @@ export async function getCategoryFieldConfigAction(
   categoryId: string,
 ): Promise<ActionResult<CategoryMeta | null>> {
   const session = await auth();
-  if (!session?.user) return err('UNAUTHORIZED', 'No autenticado');
+  if (!session?.user || !hasPermission(session.user.role as Role, 'categories', 'read'))
+    return err('FORBIDDEN', 'Sin permiso');
   const cat = await prisma.category.findUnique({
     where: { id: categoryId },
     select: { prefix: true, fieldConfig: true, defaultUsefulLife: true },
@@ -589,7 +591,8 @@ export async function getAssetLocationAction(
   assetId: string,
 ): Promise<ActionResult<AssetLocationInfo>> {
   const session = await auth();
-  if (!session?.user) return err('UNAUTHORIZED', 'No autenticado');
+  if (!session?.user || !hasPermission(session.user.role as Role, 'assets', 'read'))
+    return err('FORBIDDEN', 'Sin permiso');
 
   const asset = await prisma.asset.findUnique({
     where: { id: assetId },
@@ -617,7 +620,8 @@ export async function getAssetDetailAction(
   assetCode: string,
 ): Promise<ActionResult<AssetDetailRow>> {
   const session = await auth();
-  if (!session?.user) return err('UNAUTHORIZED', 'No autenticado');
+  if (!session?.user || !hasPermission(session.user.role as Role, 'assets', 'read'))
+    return err('FORBIDDEN', 'Sin permiso');
 
   const asset = await prisma.asset.findFirst({
     where: { assetCode },
@@ -645,7 +649,8 @@ function buildXlsx(rows: Record<string, unknown>[], sheetName: string, filename:
 
 export async function exportInventoryAction(): Promise<ExportResult> {
   const session = await auth();
-  if (!session?.user) return err('UNAUTHORIZED', 'No autenticado');
+  if (!session?.user || !hasPermission(session.user.role as Role, 'assets', 'read'))
+    return err('FORBIDDEN', 'Sin permiso');
 
   const assets = await prisma.asset.findMany({
     where: { isActive: true },
@@ -676,7 +681,8 @@ export async function exportInventoryAction(): Promise<ExportResult> {
 
 export async function exportDepreciationAction(): Promise<ExportResult> {
   const session = await auth();
-  if (!session?.user) return err('UNAUTHORIZED', 'No autenticado');
+  if (!session?.user || !hasPermission(session.user.role as Role, 'assets', 'read'))
+    return err('FORBIDDEN', 'Sin permiso');
 
   const assets = await prisma.asset.findMany({
     where: { isActive: true },
@@ -707,7 +713,8 @@ export async function exportDepreciationAction(): Promise<ExportResult> {
 
 export async function exportExpiringAction(months: 3 | 6 | 12 = 6): Promise<ExportResult> {
   const session = await auth();
-  if (!session?.user) return err('UNAUTHORIZED', 'No autenticado');
+  if (!session?.user || !hasPermission(session.user.role as Role, 'assets', 'read'))
+    return err('FORBIDDEN', 'Sin permiso');
 
   const assets = await prisma.asset.findMany({
     where: { isActive: true, purchaseDate: { not: null }, usefulLifeYears: { not: null } },
