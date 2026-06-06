@@ -32,6 +32,18 @@ vi.mock('@/lib/prisma', () => ({
   },
 }));
 vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }));
+vi.mock('@/lib/audit', () => ({
+  writeAudit: vi.fn(),
+  AuditActions: {
+    CREATE: 'CREATE',
+    UPDATE: 'UPDATE',
+    DEACTIVATE: 'DEACTIVATE',
+    DELETE: 'DELETE',
+    RETURNED: 'RETURNED',
+    TRANSFERRED: 'TRANSFERRED',
+  },
+  getRequestMeta: vi.fn().mockResolvedValue({ ip: null, userAgent: null }),
+}));
 // Capture the real hasPermission in a vi.hoisted block so it is available inside
 // the vi.mock factory (which is hoisted before all other code).
 const { realHasPermission } = vi.hoisted(() => {
@@ -334,11 +346,22 @@ describe('deleteEmployeeAction', () => {
 
   it('happy path: deletes and revalidates when no assignments', async () => {
     mockAuth.mockResolvedValue(makeSession('ADMIN'));
+    // HAS_CHILDREN guard uses bare prisma.employee.findUnique
     mockEmployee.findUnique.mockResolvedValue({ _count: { assignments: 0 } });
-    mockEmployee.delete.mockResolvedValue({});
+    const txEmployeeDelete = vi.fn().mockResolvedValue({});
+    mockTransaction.mockImplementation(async (fn: (tx: unknown) => unknown) => {
+      const tx = {
+        employee: {
+          findUnique: vi.fn().mockResolvedValue({ fullName: 'Carlos', email: 'c@test.com' }),
+          delete: txEmployeeDelete,
+        },
+        auditLog: { create: vi.fn().mockResolvedValue({}) },
+      };
+      return fn(tx);
+    });
     const result = await deleteEmployeeAction('emp-1');
     expect(result.ok).toBe(true);
-    expect(mockEmployee.delete).toHaveBeenCalledWith({ where: { id: 'emp-1' } });
+    expect(txEmployeeDelete).toHaveBeenCalledWith({ where: { id: 'emp-1' } });
     expect(revalidatePath).toHaveBeenCalledWith('/employees');
   });
 });
@@ -348,7 +371,13 @@ describe('deleteEmployeeAction', () => {
 describe('deactivateEmployeeAction', () => {
   it('returns NOT_FOUND when Prisma throws P2025', async () => {
     mockAuth.mockResolvedValue(makeSession('ADMIN'));
-    mockEmployee.update.mockRejectedValue({ code: 'P2025' });
+    mockTransaction.mockImplementation(async (fn: (tx: unknown) => unknown) => {
+      const tx = {
+        employee: { update: vi.fn().mockRejectedValue({ code: 'P2025' }) },
+        auditLog: { create: vi.fn().mockResolvedValue({}) },
+      };
+      return fn(tx);
+    });
     const result = await deactivateEmployeeAction('emp-1');
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.code).toBe('NOT_FOUND');
@@ -356,10 +385,17 @@ describe('deactivateEmployeeAction', () => {
 
   it('sets isActive=false and revalidates on success', async () => {
     mockAuth.mockResolvedValue(makeSession('ADMIN'));
-    mockEmployee.update.mockResolvedValue({});
+    const txEmployeeUpdate = vi.fn().mockResolvedValue({ id: 'emp-1', isActive: false });
+    mockTransaction.mockImplementation(async (fn: (tx: unknown) => unknown) => {
+      const tx = {
+        employee: { update: txEmployeeUpdate },
+        auditLog: { create: vi.fn().mockResolvedValue({}) },
+      };
+      return fn(tx);
+    });
     const result = await deactivateEmployeeAction('emp-1');
     expect(result.ok).toBe(true);
-    expect(mockEmployee.update).toHaveBeenCalledWith({
+    expect(txEmployeeUpdate).toHaveBeenCalledWith({
       where: { id: 'emp-1' },
       data: { isActive: false },
     });
@@ -487,6 +523,140 @@ describe('FORBIDDEN guard — searchDepartmentsAction', () => {
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.code).toBe('FORBIDDEN');
     expect(mockDepartment.findMany).not.toHaveBeenCalled();
+  });
+});
+
+// ─── Audit: createEmployeeAction ──────────────────────────────────────────────
+
+describe('audit — createEmployeeAction', () => {
+  it('calls writeAudit with action=CREATE, before=null, after has id+fullName+email', async () => {
+    mockAuth.mockResolvedValue(makeSession('ADMIN'));
+    const { writeAudit } = await import('@/lib/audit');
+    const mockWriteAudit = writeAudit as ReturnType<typeof vi.fn>;
+    mockWriteAudit.mockClear();
+
+    const createdEmployee = { ...sampleEmployee, id: 'emp-audit-1' };
+    mockTransaction.mockImplementation(async (fn: (tx: typeof prisma) => Promise<unknown>) => {
+      const tx = {
+        department: { upsert: vi.fn() },
+        employee: { create: vi.fn().mockResolvedValue(createdEmployee) },
+        auditLog: { create: vi.fn().mockResolvedValue({}) },
+      };
+      return fn(tx as unknown as typeof prisma);
+    });
+
+    await createEmployeeAction({ fullName: 'Carlos Velasco', email: 'carlos@novahold.com' });
+
+    expect(mockWriteAudit).toHaveBeenCalled();
+    const callArgs = mockWriteAudit.mock.calls[0][1];
+    expect(callArgs.action).toBe('CREATE');
+    expect(callArgs.entity).toBe('Employee');
+    expect(callArgs.before).toBeNull();
+    expect(callArgs.after).toMatchObject({ fullName: 'Carlos Velasco', email: 'carlos@novahold.com' });
+  });
+});
+
+// ─── Audit: updateEmployeeAction ──────────────────────────────────────────────
+
+describe('audit — updateEmployeeAction', () => {
+  it('calls writeAudit with action=UPDATE, before and after differ', async () => {
+    mockAuth.mockResolvedValue(makeSession('ADMIN'));
+    const { writeAudit } = await import('@/lib/audit');
+    const mockWriteAudit = writeAudit as ReturnType<typeof vi.fn>;
+    mockWriteAudit.mockClear();
+
+    // The action pre-fetches snapshot via bare prisma.employee.findUnique BEFORE the tx
+    const snapshot = { fullName: 'Old Name', email: 'old@novahold.com', phone: null, position: null, departmentId: null, locationId: null };
+    mockEmployee.findUnique.mockResolvedValue(snapshot);
+
+    const updatedEmployee = { ...sampleEmployee, fullName: 'New Name', email: 'new@novahold.com' };
+    mockTransaction.mockImplementation(async (fn: (tx: typeof prisma) => Promise<unknown>) => {
+      const tx = {
+        department: { upsert: vi.fn() },
+        employee: {
+          update: vi.fn().mockResolvedValue(updatedEmployee),
+        },
+        auditLog: { create: vi.fn().mockResolvedValue({}) },
+      };
+      return fn(tx as unknown as typeof prisma);
+    });
+
+    await updateEmployeeAction('emp-1', { fullName: 'New Name', email: 'new@novahold.com' });
+
+    expect(mockWriteAudit).toHaveBeenCalled();
+    const callArgs = mockWriteAudit.mock.calls[0][1];
+    expect(callArgs.action).toBe('UPDATE');
+    expect(callArgs.entity).toBe('Employee');
+    expect(callArgs.before).toMatchObject({ fullName: 'Old Name', email: 'old@novahold.com' });
+    expect(callArgs.after).toMatchObject({ fullName: 'New Name', email: 'new@novahold.com' });
+  });
+});
+
+// ─── Audit: deactivateEmployeeAction (S-10) ───────────────────────────────────
+
+describe('audit — deactivateEmployeeAction (S-10)', () => {
+  it('calls tx.employee.update AND writeAudit on same tx with DEACTIVATE', async () => {
+    mockAuth.mockResolvedValue(makeSession('ADMIN'));
+    const { writeAudit } = await import('@/lib/audit');
+    const mockWriteAudit = writeAudit as ReturnType<typeof vi.fn>;
+    mockWriteAudit.mockClear();
+
+    const txEmployeeUpdate = vi.fn().mockResolvedValue({ id: 'emp-1', isActive: false });
+
+    mockTransaction.mockImplementation(async (fn: (tx: unknown) => unknown) => {
+      const tx = {
+        employee: { update: txEmployeeUpdate },
+        auditLog: { create: vi.fn().mockResolvedValue({}) },
+      };
+      return fn(tx);
+    });
+
+    const result = await deactivateEmployeeAction('emp-1');
+    expect(result.ok).toBe(true);
+
+    expect(txEmployeeUpdate).toHaveBeenCalled();
+    expect(mockWriteAudit).toHaveBeenCalled();
+    const callArgs = mockWriteAudit.mock.calls[0][1];
+    expect(callArgs.action).toBe('DEACTIVATE');
+    expect(callArgs.entity).toBe('Employee');
+    expect(callArgs.entityId).toBe('emp-1');
+    expect(callArgs.before).toMatchObject({ isActive: true });
+    expect(callArgs.after).toMatchObject({ isActive: false });
+  });
+});
+
+// ─── Audit: deleteEmployeeAction ──────────────────────────────────────────────
+
+describe('audit — deleteEmployeeAction', () => {
+  it('calls writeAudit with action=DELETE, before has fullName+email, after=null', async () => {
+    mockAuth.mockResolvedValue(makeSession('ADMIN'));
+    const { writeAudit } = await import('@/lib/audit');
+    const mockWriteAudit = writeAudit as ReturnType<typeof vi.fn>;
+    mockWriteAudit.mockClear();
+
+    // HAS_CHILDREN guard uses the bare prisma.employee.findUnique
+    mockEmployee.findUnique.mockResolvedValue({ _count: { assignments: 0 }, fullName: 'Carlos Velasco', email: 'carlos@novahold.com' });
+
+    mockTransaction.mockImplementation(async (fn: (tx: unknown) => unknown) => {
+      const tx = {
+        employee: {
+          findUnique: vi.fn().mockResolvedValue({ fullName: 'Carlos Velasco', email: 'carlos@novahold.com' }),
+          delete: vi.fn().mockResolvedValue({}),
+        },
+        auditLog: { create: vi.fn().mockResolvedValue({}) },
+      };
+      return fn(tx);
+    });
+
+    const result = await deleteEmployeeAction('emp-1');
+    expect(result.ok).toBe(true);
+
+    expect(mockWriteAudit).toHaveBeenCalled();
+    const callArgs = mockWriteAudit.mock.calls[0][1];
+    expect(callArgs.action).toBe('DELETE');
+    expect(callArgs.entity).toBe('Employee');
+    expect(callArgs.before).toMatchObject({ fullName: 'Carlos Velasco', email: 'carlos@novahold.com' });
+    expect(callArgs.after).toBeNull();
   });
 });
 

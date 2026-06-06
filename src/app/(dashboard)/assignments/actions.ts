@@ -6,6 +6,7 @@ import { auth } from '@/auth';
 import { prisma } from '@/lib/prisma';
 import { hasPermission } from '@/lib/permissions';
 import { ok, err, type ActionResult } from '@/shared/types/action-result';
+import { writeAudit, AuditActions, getRequestMeta } from '@/lib/audit';
 import {
   createAssignmentSchema,
   returnAssignmentSchema,
@@ -384,13 +385,15 @@ export async function createAssignmentAction(
     return err('VALIDATION', 'Datos inválidos', yupToFieldErrors(e));
   }
 
+  const { ip, userAgent } = await getRequestMeta();
+
   const result = await prisma.$transaction(async (tx) => {
     const existing = await tx.assignment.findFirst({
       where: { assetId: dto.assetId, status: 'ACTIVE' },
     });
     if (existing) throw Object.assign(new Error('CONFLICT'), { isConflict: true });
 
-    return tx.assignment.create({
+    const created = await tx.assignment.create({
       data: {
         assetId: dto.assetId,
         employeeId: dto.employeeId,
@@ -400,6 +403,24 @@ export async function createAssignmentAction(
       },
       include: assignmentInclude,
     });
+
+    await writeAudit(tx, {
+      userId: g.userId,
+      action: AuditActions.CREATE,
+      entity: 'Assignment',
+      entityId: created.id,
+      before: null,
+      after: {
+        assetId: created.assetId,
+        employeeId: created.employeeId,
+        assignedAt: created.assignedAt,
+        status: created.status,
+      },
+      ip,
+      userAgent,
+    });
+
+    return created;
   }).catch((e: unknown) => {
     if ((e as { isConflict?: boolean }).isConflict) return { __conflict: true } as const;
     throw e;
@@ -430,9 +451,11 @@ export async function returnAssignmentAction(
     return err('VALIDATION', 'Datos inválidos', yupToFieldErrors(e));
   }
 
+  const { ip, userAgent } = await getRequestMeta();
+
   try {
     const updated = await prisma.$transaction(async (tx) => {
-      return tx.assignment.update({
+      const result = await tx.assignment.update({
         where: { id, status: 'ACTIVE' },
         data: {
           status: 'RETURNED',
@@ -441,6 +464,19 @@ export async function returnAssignmentAction(
         },
         include: assignmentInclude,
       });
+
+      await writeAudit(tx, {
+        userId: g.userId,
+        action: AuditActions.RETURNED,
+        entity: 'Assignment',
+        entityId: id,
+        before: { status: 'ACTIVE' },
+        after: { status: 'RETURNED', returnedAt: result.returnedAt },
+        ip,
+        userAgent,
+      });
+
+      return result;
     });
     revalidatePath('/assignments');
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -467,8 +503,17 @@ export async function transferAssignmentAction(
     return err('VALIDATION', 'Datos inválidos', yupToFieldErrors(e));
   }
 
+  const { ip, userAgent } = await getRequestMeta();
+
   try {
     const newAssignment = await prisma.$transaction(async (tx) => {
+      // Fetch old employeeId BEFORE closing source (for audit before snapshot)
+      const sourceSnapshot = await tx.assignment.findUnique({
+        where: { id },
+        select: { employeeId: true, status: true },
+      });
+      const oldEmployeeId = sourceSnapshot?.employeeId ?? null;
+
       // CAS: only update if status is ACTIVE
       const source = await tx.assignment.update({
         where: { id, status: 'ACTIVE' },
@@ -482,7 +527,7 @@ export async function transferAssignmentAction(
       });
       if (conflict) throw Object.assign(new Error('CONFLICT'), { isConflict: true });
 
-      return tx.assignment.create({
+      const created = await tx.assignment.create({
         data: {
           assetId: source.assetId,
           employeeId: dto.newEmployeeId,
@@ -492,6 +537,19 @@ export async function transferAssignmentAction(
         },
         include: assignmentInclude,
       });
+
+      await writeAudit(tx, {
+        userId: g.userId,
+        action: AuditActions.TRANSFERRED,
+        entity: 'Assignment',
+        entityId: id,
+        before: { employeeId: oldEmployeeId, status: 'ACTIVE' },
+        after: { employeeId: dto.newEmployeeId, status: 'ACTIVE', newAssignmentId: created.id },
+        ip,
+        userAgent,
+      });
+
+      return created;
     });
 
     revalidatePath('/assignments');
@@ -551,7 +609,32 @@ export async function deleteAssignmentAction(id: string): Promise<ActionResult<v
   if (assignment.status === 'ACTIVE')
     return err('CONFLICT', 'No se puede eliminar una asignación activa');
 
-  await prisma.assignment.delete({ where: { id } });
-  revalidatePath('/assignments');
-  return ok(undefined);
+  const { ip, userAgent } = await getRequestMeta();
+
+  try {
+    await prisma.$transaction(async (tx) => {
+      const snapshot = await tx.assignment.findUnique({
+        where: { id },
+        select: { assetId: true, employeeId: true, status: true },
+      });
+
+      await writeAudit(tx, {
+        userId: g.userId,
+        action: AuditActions.DELETE,
+        entity: 'Assignment',
+        entityId: id,
+        before: snapshot,
+        after: null,
+        ip,
+        userAgent,
+      });
+
+      await tx.assignment.delete({ where: { id } });
+    });
+    revalidatePath('/assignments');
+    return ok(undefined);
+  } catch (e) {
+    if (isP2025(e)) return err('NOT_FOUND', 'Asignación no encontrada');
+    return err('UNKNOWN', 'Error al eliminar asignación');
+  }
 }

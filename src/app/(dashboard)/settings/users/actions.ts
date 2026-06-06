@@ -7,6 +7,7 @@ import type { UserRole } from '@/generated/prisma';
 import { ok, err } from '@/shared/types/action-result';
 import type { ActionResult } from '@/shared/types/action-result';
 import type { PageInfo } from '@/shared/types/pagination';
+import { writeAudit, AuditActions, getRequestMeta } from '@/lib/audit';
 
 // ─── List ──────────────────────────────────────────────────────────────────
 
@@ -117,28 +118,51 @@ export async function listUsersAction(
   return ok({ rows: mappedRows, rowCount, pageInfo: { hasNextPage, hasPreviousPage, startCursor, endCursor, limit } });
 }
 
-export async function updateUserRole(userId: string, newRole: UserRole): Promise<void> {
+export async function updateUserRole(userId: string, newRole: UserRole): Promise<ActionResult<void>> {
   const session = await auth();
-  if (!session?.user || session.user.role !== 'SUPER_ADMIN') {
-    throw new Error('No autorizado');
-  }
+  if (!session?.user || session.user.role !== 'SUPER_ADMIN')
+    return err('FORBIDDEN', 'Sin permiso');
 
-  const target = await prisma.user.findUnique({
-    where: { id: userId },
-    select: { id: true, role: true },
-  });
-  if (!target) throw new Error('Usuario no encontrado');
-  if (target.role === newRole) return;
+  const { ip, userAgent } = await getRequestMeta();
 
-  if (target.role === 'SUPER_ADMIN' && newRole !== 'SUPER_ADMIN') {
-    const superAdminCount = await prisma.user.count({
-      where: { role: 'SUPER_ADMIN' },
+  try {
+    const changed = await prisma.$transaction(async (tx) => {
+      const target = await tx.user.findUnique({
+        where: { id: userId },
+        select: { role: true },
+      });
+      if (!target) return { notFound: true as const };
+      if (target.role === newRole) return { noop: true as const };
+
+      if (target.role === 'SUPER_ADMIN' && newRole !== 'SUPER_ADMIN') {
+        const superAdminCount = await tx.user.count({
+          where: { role: 'SUPER_ADMIN' },
+        });
+        if (superAdminCount <= 1) {
+          throw { guard: 'LAST_SUPER_ADMIN' };
+        }
+      }
+
+      await tx.user.update({ where: { id: userId }, data: { role: newRole } });
+      await writeAudit(tx, {
+        userId: session.user.id as string,
+        action: AuditActions.ROLE_CHANGED,
+        entity: 'User',
+        entityId: userId,
+        before: { role: target.role },
+        after: { role: newRole },
+        ip,
+        userAgent,
+      });
+      return { ok: true as const };
     });
-    if (superAdminCount <= 1) {
-      throw new Error('No puede degradar al último SUPER_ADMIN');
-    }
-  }
 
-  await prisma.user.update({ where: { id: userId }, data: { role: newRole } });
-  revalidatePath('/settings/users');
+    if ('notFound' in changed) return err('NOT_FOUND', 'Usuario no encontrado');
+    revalidatePath('/settings/users');
+    return ok(undefined);
+  } catch (e) {
+    if ((e as { guard?: string }).guard === 'LAST_SUPER_ADMIN')
+      return err('FORBIDDEN', 'No puede degradar al último SUPER_ADMIN');
+    return err('UNKNOWN', 'Error al actualizar rol');
+  }
 }

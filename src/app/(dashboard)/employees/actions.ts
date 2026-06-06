@@ -5,6 +5,7 @@ import { auth } from '@/auth';
 import { prisma } from '@/lib/prisma';
 import { hasPermission } from '@/lib/permissions';
 import { ok, err, type ActionResult } from '@/shared/types/action-result';
+import { writeAudit, AuditActions, getRequestMeta } from '@/lib/audit';
 import {
   employeeCreateSchema,
   employeeUpdateSchema,
@@ -227,6 +228,8 @@ export async function createEmployeeAction(
     return err('VALIDATION', 'Datos inválidos', yupToFieldErrors(e));
   }
 
+  const { ip, userAgent } = await getRequestMeta();
+
   try {
     const e = await prisma.$transaction(async (tx) => {
       let deptId = dto.departmentId ?? null;
@@ -239,7 +242,7 @@ export async function createEmployeeAction(
         });
         deptId = d.id;
       }
-      return tx.employee.create({
+      const created = await tx.employee.create({
         data: {
           fullName: dto.fullName,
           email: dto.email,
@@ -252,6 +255,24 @@ export async function createEmployeeAction(
         },
         include: employeeInclude,
       });
+
+      await writeAudit(tx, {
+        userId: g.userId,
+        action: AuditActions.CREATE,
+        entity: 'Employee',
+        entityId: created.id,
+        before: null,
+        after: {
+          id: created.id,
+          fullName: created.fullName,
+          email: created.email,
+          departmentId: created.departmentId ?? null,
+        },
+        ip,
+        userAgent,
+      });
+
+      return created;
     });
     revalidatePath('/employees');
     return ok(toEmployeeRow(e));
@@ -281,6 +302,14 @@ export async function updateEmployeeAction(
   } catch (e) {
     return err('VALIDATION', 'Datos inválidos', yupToFieldErrors(e));
   }
+
+  const { ip, userAgent } = await getRequestMeta();
+
+  // Pre-fetch snapshot BEFORE transaction
+  const snapshot = await prisma.employee.findUnique({
+    where: { id },
+    select: { fullName: true, email: true, phone: true, position: true, departmentId: true, locationId: true },
+  });
 
   try {
     const e = await prisma.$transaction(async (tx) => {
@@ -315,7 +344,27 @@ export async function updateEmployeeAction(
           : { disconnect: true };
       if (deptAction) Object.assign(data, deptAction);
 
-      return tx.employee.update({ where: { id }, data, include: employeeInclude });
+      const updated = await tx.employee.update({ where: { id }, data, include: employeeInclude });
+
+      await writeAudit(tx, {
+        userId: g.userId,
+        action: AuditActions.UPDATE,
+        entity: 'Employee',
+        entityId: id,
+        before: snapshot,
+        after: {
+          fullName: updated.fullName,
+          email: updated.email,
+          phone: updated.phone ?? null,
+          position: updated.position ?? null,
+          departmentId: updated.departmentId ?? null,
+          locationId: updated.locationId ?? null,
+        },
+        ip,
+        userAgent,
+      });
+
+      return updated;
     });
     revalidatePath('/employees');
     return ok(toEmployeeRow(e));
@@ -335,6 +384,7 @@ export async function deleteEmployeeAction(id: string): Promise<ActionResult<voi
   const g = await requireWrite();
   if (!g.ok) return g.error;
 
+  // HAS_CHILDREN guard stays BEFORE transaction
   const row = await prisma.employee.findUnique({
     where: { id },
     select: { _count: { select: { assignments: true } } },
@@ -346,9 +396,34 @@ export async function deleteEmployeeAction(id: string): Promise<ActionResult<voi
       `No se puede eliminar: tiene ${row._count.assignments} asignaciones. Usá "Desactivar" en su lugar.`,
     );
 
-  await prisma.employee.delete({ where: { id } });
-  revalidatePath('/employees');
-  return ok(undefined);
+  const { ip, userAgent } = await getRequestMeta();
+
+  try {
+    await prisma.$transaction(async (tx) => {
+      const snapshot = await tx.employee.findUnique({
+        where: { id },
+        select: { fullName: true, email: true },
+      });
+
+      await writeAudit(tx, {
+        userId: g.userId,
+        action: AuditActions.DELETE,
+        entity: 'Employee',
+        entityId: id,
+        before: snapshot,
+        after: null,
+        ip,
+        userAgent,
+      });
+
+      await tx.employee.delete({ where: { id } });
+    });
+    revalidatePath('/employees');
+    return ok(undefined);
+  } catch (e) {
+    if (isP2025(e)) return err('NOT_FOUND', 'Empleado no encontrado');
+    return err('UNKNOWN', 'Error al eliminar empleado');
+  }
 }
 
 // ─── Deactivate ────────────────────────────────────────────────────────────────
@@ -357,8 +432,23 @@ export async function deactivateEmployeeAction(id: string): Promise<ActionResult
   const g = await requireWrite();
   if (!g.ok) return g.error;
 
+  const { ip, userAgent } = await getRequestMeta();
+
   try {
-    await prisma.employee.update({ where: { id }, data: { isActive: false } });
+    await prisma.$transaction(async (tx) => {
+      await tx.employee.update({ where: { id }, data: { isActive: false } });
+
+      await writeAudit(tx, {
+        userId: g.userId,
+        action: AuditActions.DEACTIVATE,
+        entity: 'Employee',
+        entityId: id,
+        before: { isActive: true },
+        after: { isActive: false },
+        ip,
+        userAgent,
+      });
+    });
     revalidatePath('/employees');
     return ok(undefined);
   } catch (e) {

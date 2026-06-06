@@ -27,6 +27,16 @@ vi.mock('@/lib/prisma', () => ({
   },
 }));
 vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }));
+vi.mock('@/lib/audit', () => ({
+  writeAudit: vi.fn().mockResolvedValue(undefined),
+  AuditActions: {
+    CREATE: 'CREATE',
+    UPDATE: 'UPDATE',
+    DEACTIVATE: 'DEACTIVATE',
+    DELETE: 'DELETE',
+  },
+  getRequestMeta: vi.fn().mockResolvedValue({ ip: '1.1.1.1', userAgent: 'ua' }),
+}));
 // Capture the real hasPermission in a vi.hoisted block so it is available inside
 // the vi.mock factory (which is hoisted before all other code).
 const { realHasPermission } = vi.hoisted(() => {
@@ -46,6 +56,7 @@ import { auth } from '@/auth';
 import { prisma } from '@/lib/prisma';
 import { revalidatePath } from 'next/cache';
 import { hasPermission } from '@/lib/permissions';
+import { writeAudit, getRequestMeta } from '@/lib/audit';
 import {
   listAssetsAction,
   searchAssetsAction,
@@ -318,7 +329,17 @@ describe('updateAssetAction', () => {
   it('updates asset and returns updated row', async () => {
     mockAuth.mockResolvedValue(adminSession);
     const updated = { ...baseAsset, brand: 'Dell' };
-    mockAsset.update.mockResolvedValue(updated);
+    (prisma.$transaction as ReturnType<typeof vi.fn>).mockImplementation(
+      async (fn: (tx: unknown) => Promise<unknown>) => {
+        const tx = {
+          asset: {
+            findUnique: vi.fn().mockResolvedValue({ assetCode: 'NVH-PC-00001', categoryId: 'cat1', locationId: null, bodegaId: null }),
+            update: vi.fn().mockResolvedValue(updated),
+          },
+        };
+        return fn(tx);
+      },
+    );
     const r = await updateAssetAction('asset1', { brand: 'Dell' });
     expect(r.ok).toBe(true);
     if (!r.ok) return;
@@ -327,7 +348,17 @@ describe('updateAssetAction', () => {
 
   it('returns NOT_FOUND for nonexistent asset', async () => {
     mockAuth.mockResolvedValue(adminSession);
-    mockAsset.update.mockRejectedValue({ code: 'P2025' });
+    (prisma.$transaction as ReturnType<typeof vi.fn>).mockImplementation(
+      async (fn: (tx: unknown) => Promise<unknown>) => {
+        const tx = {
+          asset: {
+            findUnique: vi.fn().mockResolvedValue(null),
+            update: vi.fn(),
+          },
+        };
+        return fn(tx);
+      },
+    );
     const r = await updateAssetAction('ghost', { brand: 'Dell' });
     expect(r.ok).toBe(false);
     expect((r as { ok: false; code: string }).code).toBe('NOT_FOUND');
@@ -347,10 +378,16 @@ describe('deactivateAssetAction', () => {
 
   it('sets isActive=false for ADMIN', async () => {
     mockAuth.mockResolvedValue(adminSession);
-    mockAsset.update.mockResolvedValue({ ...baseAsset, isActive: false });
+    const txUpdate = vi.fn().mockResolvedValue({ ...baseAsset, isActive: false });
+    (prisma.$transaction as ReturnType<typeof vi.fn>).mockImplementation(
+      async (fn: (tx: unknown) => Promise<unknown>) => {
+        const tx = { asset: { update: txUpdate } };
+        return fn(tx);
+      },
+    );
     const r = await deactivateAssetAction('asset1');
     expect(r.ok).toBe(true);
-    expect(mockAsset.update).toHaveBeenCalledWith(
+    expect(txUpdate).toHaveBeenCalledWith(
       expect.objectContaining({ data: { isActive: false } }),
     );
   });
@@ -389,13 +426,25 @@ describe('deleteAssetAction', () => {
 
   it('deletes asset when no assignments or components', async () => {
     mockAuth.mockResolvedValue(adminSession);
+    // First findUnique is the HAS_CHILDREN guard (outer, not in tx)
     mockAsset.findUnique.mockResolvedValue({
       _count: { assignments: 0, components: 0 },
     });
-    mockAsset.delete.mockResolvedValue({});
+    const txDelete = vi.fn().mockResolvedValue({});
+    (prisma.$transaction as ReturnType<typeof vi.fn>).mockImplementation(
+      async (fn: (tx: unknown) => Promise<unknown>) => {
+        const tx = {
+          asset: {
+            findUnique: vi.fn().mockResolvedValue({ assetCode: 'NVH-PC-00001', categoryId: 'cat1', locationId: null }),
+            delete: txDelete,
+          },
+        };
+        return fn(tx);
+      },
+    );
     const r = await deleteAssetAction('asset1');
     expect(r.ok).toBe(true);
-    expect(mockAsset.delete).toHaveBeenCalledWith({ where: { id: 'asset1' } });
+    expect(txDelete).toHaveBeenCalledWith({ where: { id: 'asset1' } });
   });
 });
 
@@ -771,5 +820,156 @@ describe('FORBIDDEN guard — exportExpiringAction', () => {
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.code).toBe('FORBIDDEN');
     expect(mockAsset.findMany).not.toHaveBeenCalled();
+  });
+});
+
+// ─── Audit — S-05: createAssetAction writes CREATE audit ──────────────────
+
+describe('createAssetAction audit — S-05', () => {
+  const mockWriteAudit = writeAudit as ReturnType<typeof vi.fn>;
+  const mockGetRequestMeta = getRequestMeta as ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockHasPermission.mockImplementation(realHasPermission.fn);
+    mockGetRequestMeta.mockResolvedValue({ ip: '1.1.1.1', userAgent: 'ua' });
+    mockWriteAudit.mockResolvedValue(undefined);
+  });
+
+  it('calls writeAudit with action=CREATE, assetId set, before=null, after.assetCode present', async () => {
+    mockAuth.mockResolvedValue(adminSession);
+    mockCategory.findUnique.mockResolvedValue(baseCategory);
+
+    const createdAsset = {
+      ...baseAsset,
+      id: 'asset-1',
+      assetCode: 'NVH-TEC-00001',
+      categoryId: 'cat-1',
+      locationId: null,
+    };
+
+    (prisma.$transaction as ReturnType<typeof vi.fn>).mockImplementation(
+      async (fn: (tx: unknown) => Promise<unknown>) => {
+        const tx = {
+          category: {
+            update: vi.fn().mockResolvedValue({ ...baseCategory, sequence: 1, prefix: 'TEC' }),
+          },
+          asset: {
+            findUnique: vi.fn().mockResolvedValue(null),
+            create: vi.fn().mockResolvedValue(createdAsset),
+          },
+          exchangeRate: { findFirst: vi.fn().mockResolvedValue(null) },
+          currency: { findUnique: vi.fn().mockResolvedValue(null) },
+        };
+        return fn(tx);
+      },
+    );
+
+    const r = await createAssetAction({ categoryId: 'cat-1', processor: 'i7', ram: '16GB' });
+    expect(r.ok).toBe(true);
+
+    expect(mockWriteAudit).toHaveBeenCalledOnce();
+    const [, params] = mockWriteAudit.mock.calls[0] as [unknown, Record<string, unknown>];
+    expect(params.action).toBe('CREATE');
+    expect(params.entity).toBe('Asset');
+    expect(params.entityId).toBe('asset-1');
+    expect(params.assetId).toBe('asset-1');
+    expect(params.before).toBeNull();
+    expect((params.after as Record<string, unknown>).assetCode).toBe('NVH-TEC-00001');
+    expect(params.ip).toBe('1.1.1.1');
+  });
+});
+
+// ─── Audit — S-06: updateAssetAction captures before/after diff ──────────
+
+describe('updateAssetAction audit — S-06', () => {
+  const mockWriteAudit = writeAudit as ReturnType<typeof vi.fn>;
+  const mockGetRequestMeta = getRequestMeta as ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockHasPermission.mockImplementation(realHasPermission.fn);
+    mockGetRequestMeta.mockResolvedValue({ ip: '1.1.1.1', userAgent: 'ua' });
+    mockWriteAudit.mockResolvedValue(undefined);
+  });
+
+  it('calls writeAudit with action=UPDATE and correct before/after locationId diff', async () => {
+    mockAuth.mockResolvedValue(adminSession);
+
+    const beforeSnapshot = {
+      assetCode: 'NVH-TEC-00001',
+      categoryId: 'cat-1',
+      locationId: 'loc-old',
+      bodegaId: null,
+    };
+    const updatedAsset = { ...baseAsset, locationId: 'loc-new', bodegaId: null };
+
+    (prisma.$transaction as ReturnType<typeof vi.fn>).mockImplementation(
+      async (fn: (tx: unknown) => Promise<unknown>) => {
+        const tx = {
+          asset: {
+            findUnique: vi.fn().mockResolvedValue(beforeSnapshot),
+            update: vi.fn().mockResolvedValue(updatedAsset),
+          },
+        };
+        return fn(tx);
+      },
+    );
+
+    const r = await updateAssetAction('asset-1', { locationId: 'loc-new' });
+    expect(r.ok).toBe(true);
+
+    expect(mockWriteAudit).toHaveBeenCalledOnce();
+    const [, params] = mockWriteAudit.mock.calls[0] as [unknown, Record<string, unknown>];
+    expect(params.action).toBe('UPDATE');
+    expect(params.entity).toBe('Asset');
+    expect((params.before as Record<string, unknown>).locationId).toBe('loc-old');
+    expect((params.after as Record<string, unknown>).locationId).toBe('loc-new');
+  });
+});
+
+// ─── Audit — S-07: updateAssetAction rolls back when audit write fails ────
+
+describe('updateAssetAction audit — S-07', () => {
+  const mockWriteAudit = writeAudit as ReturnType<typeof vi.fn>;
+  const mockGetRequestMeta = getRequestMeta as ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockHasPermission.mockImplementation(realHasPermission.fn);
+    mockGetRequestMeta.mockResolvedValue({ ip: '1.1.1.1', userAgent: 'ua' });
+  });
+
+  it('returns err(UNKNOWN) when writeAudit throws inside $transaction', async () => {
+    mockAuth.mockResolvedValue(adminSession);
+
+    const beforeSnapshot = {
+      assetCode: 'NVH-TEC-00001',
+      categoryId: 'cat-1',
+      locationId: 'loc-old',
+      bodegaId: null,
+    };
+    const updatedAsset = { ...baseAsset, locationId: 'loc-new' };
+
+    // Real callback runner so thrown error propagates as err('UNKNOWN')
+    (prisma.$transaction as ReturnType<typeof vi.fn>).mockImplementation(
+      async (fn: (tx: unknown) => Promise<unknown>) => {
+        const tx = {
+          asset: {
+            findUnique: vi.fn().mockResolvedValue(beforeSnapshot),
+            update: vi.fn().mockResolvedValue(updatedAsset),
+          },
+        };
+        return fn(tx);
+      },
+    );
+
+    // writeAudit throws — simulates DB_WRITE_FAIL propagating out of $transaction
+    mockWriteAudit.mockRejectedValue(new Error('DB_WRITE_FAIL'));
+
+    const r = await updateAssetAction('asset-1', { locationId: 'loc-new' });
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.code).toBe('UNKNOWN');
   });
 });

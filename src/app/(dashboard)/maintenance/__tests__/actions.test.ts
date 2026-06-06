@@ -16,10 +16,23 @@ vi.mock('@/lib/prisma', () => ({
   },
 }));
 vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }));
+vi.mock('@/lib/audit', () => ({
+  writeAudit: vi.fn(),
+  AuditActions: {
+    CREATE: 'CREATE',
+    UPDATE: 'UPDATE',
+    DEACTIVATE: 'DEACTIVATE',
+    DELETE: 'DELETE',
+    RETURNED: 'RETURNED',
+    TRANSFERRED: 'TRANSFERRED',
+  },
+  getRequestMeta: vi.fn().mockResolvedValue({ ip: null, userAgent: null }),
+}));
 
 import { auth } from '@/auth';
 import { prisma } from '@/lib/prisma';
 import { revalidatePath } from 'next/cache';
+import { getRequestMeta } from '@/lib/audit';
 
 import { toMaintenanceRow } from '../presentation/mappers/maintenance.mapper';
 
@@ -174,6 +187,7 @@ describe('listMaintenancesAction', () => {
 describe('createMaintenanceAction', () => {
   beforeEach(() => {
     vi.resetAllMocks();
+    (getRequestMeta as ReturnType<typeof vi.fn>).mockResolvedValue({ ip: null, userAgent: null });
   });
 
   it('returns UNAUTHORIZED when session is null', async () => {
@@ -321,6 +335,7 @@ describe('createMaintenanceAction', () => {
 describe('deleteMaintenanceAction', () => {
   beforeEach(() => {
     vi.resetAllMocks();
+    (getRequestMeta as ReturnType<typeof vi.fn>).mockResolvedValue({ ip: null, userAgent: null });
   });
 
   it('returns UNAUTHORIZED when session is null', async () => {
@@ -341,7 +356,15 @@ describe('deleteMaintenanceAction', () => {
 
   it('returns NOT_FOUND when record does not exist (P2025)', async () => {
     mockAuth.mockResolvedValue(adminSession);
-    mockMaintenance.delete.mockRejectedValue({ code: 'P2025' });
+    // pre-fetch returns a record (or null for not found — tested via tx.maintenance.delete error)
+    mockMaintenance.findUnique.mockResolvedValue({ assetId: 'ast1', type: 'REVISION', performedAt: now });
+    mockTransaction.mockImplementation(async (fn: (tx: unknown) => Promise<unknown>) => {
+      const tx = {
+        maintenance: { delete: vi.fn().mockRejectedValue({ code: 'P2025' }) },
+        auditLog: { create: vi.fn().mockResolvedValue({}) },
+      };
+      return fn(tx);
+    });
     const { deleteMaintenanceAction } = await import('../actions');
     const result = await deleteMaintenanceAction('nonexistent');
     expect(result.ok).toBe(false);
@@ -350,11 +373,159 @@ describe('deleteMaintenanceAction', () => {
 
   it('deletes maintenance successfully for ADMIN', async () => {
     mockAuth.mockResolvedValue(adminSession);
-    mockMaintenance.delete.mockResolvedValue({});
+    mockMaintenance.findUnique.mockResolvedValue({ assetId: 'ast1', type: 'REVISION', performedAt: now });
+    const txMaintenanceDelete = vi.fn().mockResolvedValue({});
+    mockTransaction.mockImplementation(async (fn: (tx: unknown) => Promise<unknown>) => {
+      const tx = {
+        maintenance: { delete: txMaintenanceDelete },
+        auditLog: { create: vi.fn().mockResolvedValue({}) },
+      };
+      return fn(tx);
+    });
     const { deleteMaintenanceAction } = await import('../actions');
     const result = await deleteMaintenanceAction('mnt1');
     expect(result.ok).toBe(true);
-    expect(mockMaintenance.delete).toHaveBeenCalledWith({ where: { id: 'mnt1' } });
+    expect(txMaintenanceDelete).toHaveBeenCalledWith({ where: { id: 'mnt1' } });
     expect(revalidatePath).toHaveBeenCalledWith('/maintenance');
+  });
+});
+
+// ─── Audit: createMaintenanceAction ───────────────────────────────────────────
+
+describe('audit — createMaintenanceAction', () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+    (getRequestMeta as ReturnType<typeof vi.fn>).mockResolvedValue({ ip: null, userAgent: null });
+  });
+
+  it('calls writeAudit with action=CREATE, before=null, after has assetId+type+performedAt', async () => {
+    mockAuth.mockResolvedValue(technicianSession);
+    const { writeAudit } = await import('@/lib/audit');
+    const mockWriteAudit = writeAudit as ReturnType<typeof vi.fn>;
+    mockWriteAudit.mockClear();
+
+    const createdMaintenance = { ...fakeDbMaintenance };
+    mockTransaction.mockImplementation(async (fn: (tx: unknown) => Promise<unknown>) => {
+      const tx = {
+        maintenance: { create: vi.fn().mockResolvedValue(createdMaintenance) },
+        asset: { update: vi.fn().mockResolvedValue({}) },
+        auditLog: { create: vi.fn().mockResolvedValue({}) },
+      };
+      return fn(tx);
+    });
+
+    const { createMaintenanceAction } = await import('../actions');
+    await createMaintenanceAction({ assetId: 'ast1', type: 'REVISION', performedAt: '2025-03-15' });
+
+    expect(mockWriteAudit).toHaveBeenCalled();
+    const callArgs = mockWriteAudit.mock.calls[0][1];
+    expect(callArgs.action).toBe('CREATE');
+    expect(callArgs.entity).toBe('Maintenance');
+    expect(callArgs.before).toBeNull();
+    expect(callArgs.after).toMatchObject({ assetId: 'ast1', type: 'REVISION' });
+    expect(callArgs.after.performedAt).toBeDefined();
+  });
+});
+
+// ─── Audit: updateMaintenanceAction ───────────────────────────────────────────
+
+describe('audit — updateMaintenanceAction', () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+    (getRequestMeta as ReturnType<typeof vi.fn>).mockResolvedValue({ ip: null, userAgent: null });
+  });
+
+  it('calls writeAudit with action=UPDATE, before and after differ', async () => {
+    mockAuth.mockResolvedValue(adminSession);
+    const { writeAudit } = await import('@/lib/audit');
+    const mockWriteAudit = writeAudit as ReturnType<typeof vi.fn>;
+    mockWriteAudit.mockClear();
+
+    // The action pre-fetches snapshot via bare prisma.maintenance.findUnique BEFORE the tx
+    const snapshot = { type: 'REVISION', description: 'Old description', performedBy: 'Old Technician', performedAt: now, nextReview: null };
+    mockMaintenance.findUnique.mockResolvedValue(snapshot);
+
+    const updatedMaintenance = { ...fakeDbMaintenance, description: 'New description' };
+
+    mockTransaction.mockImplementation(async (fn: (tx: unknown) => Promise<unknown>) => {
+      const tx = {
+        maintenance: {
+          update: vi.fn().mockResolvedValue(updatedMaintenance),
+        },
+        asset: { update: vi.fn().mockResolvedValue({}) },
+        auditLog: { create: vi.fn().mockResolvedValue({}) },
+      };
+      return fn(tx);
+    });
+
+    const { updateMaintenanceAction } = await import('../actions');
+    await updateMaintenanceAction('mnt1', { description: 'New description' });
+
+    expect(mockWriteAudit).toHaveBeenCalled();
+    const callArgs = mockWriteAudit.mock.calls[0][1];
+    expect(callArgs.action).toBe('UPDATE');
+    expect(callArgs.entity).toBe('Maintenance');
+    expect(callArgs.before).toMatchObject({ type: 'REVISION', description: 'Old description' });
+    expect(callArgs.after).toMatchObject({ description: 'New description' });
+  });
+});
+
+// ─── Audit: deleteMaintenanceAction (S-12) ────────────────────────────────────
+
+describe('audit — deleteMaintenanceAction (S-12)', () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+    (getRequestMeta as ReturnType<typeof vi.fn>).mockResolvedValue({ ip: null, userAgent: null });
+  });
+
+  it('writeAudit called BEFORE maintenance.delete; action=DELETE; before.assetId=asset-1; after=null', async () => {
+    mockAuth.mockResolvedValue(adminSession);
+    const { writeAudit } = await import('@/lib/audit');
+    const mockWriteAudit = writeAudit as ReturnType<typeof vi.fn>;
+    mockWriteAudit.mockClear();
+
+    const callOrder: string[] = [];
+
+    const maintenanceDelete = vi.fn().mockImplementation(() => {
+      callOrder.push('delete');
+      return Promise.resolve({});
+    });
+
+    // writeAudit is mocked at module level; track when it's called relative to delete
+    mockWriteAudit.mockImplementation(async () => {
+      callOrder.push('audit');
+    });
+
+    // The action pre-fetches snapshot via bare prisma.maintenance.findUnique BEFORE the $transaction
+    mockMaintenance.findUnique.mockResolvedValue({
+      assetId: 'asset-1',
+      type: 'PREVENTIVE',
+      performedAt: now,
+    });
+
+    mockTransaction.mockImplementation(async (fn: (tx: unknown) => Promise<unknown>) => {
+      const tx = {
+        maintenance: {
+          delete: maintenanceDelete,
+        },
+        auditLog: { create: vi.fn().mockResolvedValue({}) },
+      };
+      return fn(tx);
+    });
+
+    const { deleteMaintenanceAction } = await import('../actions');
+    const result = await deleteMaintenanceAction('maint-1');
+    expect(result.ok).toBe(true);
+
+    expect(mockWriteAudit).toHaveBeenCalled();
+    const callArgs = mockWriteAudit.mock.calls[0][1];
+    expect(callArgs.action).toBe('DELETE');
+    expect(callArgs.entity).toBe('Maintenance');
+    expect(callArgs.entityId).toBe('maint-1');
+    expect(callArgs.before).toMatchObject({ assetId: 'asset-1' });
+    expect(callArgs.after).toBeNull();
+
+    // writeAudit (audit) must be called before delete
+    expect(callOrder.indexOf('audit')).toBeLessThan(callOrder.indexOf('delete'));
   });
 });

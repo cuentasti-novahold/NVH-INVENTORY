@@ -22,6 +22,18 @@ vi.mock('@/lib/prisma', () => ({
   },
 }));
 vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }));
+vi.mock('@/lib/audit', () => ({
+  writeAudit: vi.fn(),
+  AuditActions: {
+    CREATE: 'CREATE',
+    UPDATE: 'UPDATE',
+    DEACTIVATE: 'DEACTIVATE',
+    DELETE: 'DELETE',
+    RETURNED: 'RETURNED',
+    TRANSFERRED: 'TRANSFERRED',
+  },
+  getRequestMeta: vi.fn().mockResolvedValue({ ip: null, userAgent: null }),
+}));
 
 import { auth } from '@/auth';
 import { prisma } from '@/lib/prisma';
@@ -346,6 +358,7 @@ describe('transferAssignmentAction', () => {
       ...fakeDbAssignment,
       status: 'TRANSFERRED',
       returnedAt: new Date(),
+      assetId: 'asset1',
     };
     const newAssignment = {
       ...fakeDbAssignment,
@@ -357,10 +370,12 @@ describe('transferAssignmentAction', () => {
     mockTransaction.mockImplementation(async (fn: (tx: unknown) => unknown) => {
       const tx = {
         assignment: {
+          findUnique: vi.fn().mockResolvedValue({ employeeId: 'emp1', status: 'ACTIVE' }),
           update: vi.fn().mockResolvedValue(transferredAssignment),
           findFirst: vi.fn().mockResolvedValue(null),
           create: vi.fn().mockResolvedValue(newAssignment),
         },
+        auditLog: { create: vi.fn().mockResolvedValue({}) },
       };
       return fn(tx);
     });
@@ -377,10 +392,12 @@ describe('transferAssignmentAction', () => {
     mockTransaction.mockImplementation(async (fn: (tx: unknown) => unknown) => {
       const tx = {
         assignment: {
+          findUnique: vi.fn().mockResolvedValue({ employeeId: 'emp1', status: 'ACTIVE' }),
           update: vi.fn().mockRejectedValue({ code: 'P2025' }),
           findFirst: vi.fn(),
           create: vi.fn(),
         },
+        auditLog: { create: vi.fn().mockResolvedValue({}) },
       };
       return fn(tx);
     });
@@ -400,10 +417,12 @@ describe('transferAssignmentAction', () => {
     mockTransaction.mockImplementation(async (fn: (tx: unknown) => unknown) => {
       const tx = {
         assignment: {
+          findUnique: vi.fn().mockResolvedValue({ employeeId: 'emp1', status: 'ACTIVE' }),
           update: vi.fn().mockResolvedValue(transferredAssignment),
           findFirst: vi.fn().mockResolvedValue(fakeDbAssignment), // existing active
           create: vi.fn(),
         },
+        auditLog: { create: vi.fn().mockResolvedValue({}) },
       };
       return fn(tx);
     });
@@ -457,17 +476,36 @@ describe('deleteAssignmentAction', () => {
   it('deletes RETURNED assignment successfully', async () => {
     mockAuth.mockResolvedValue(adminSession);
     mockAssignment.findUnique.mockResolvedValue({ id: 'asgn1', status: 'RETURNED' });
-    mockAssignment.delete.mockResolvedValue({});
+    const txAssignmentDelete = vi.fn().mockResolvedValue({});
+    mockTransaction.mockImplementation(async (fn: (tx: unknown) => unknown) => {
+      const tx = {
+        assignment: {
+          findUnique: vi.fn().mockResolvedValue({ assetId: 'asset1', employeeId: 'emp1', status: 'RETURNED' }),
+          delete: txAssignmentDelete,
+        },
+        auditLog: { create: vi.fn().mockResolvedValue({}) },
+      };
+      return fn(tx);
+    });
     const r = await deleteAssignmentAction('asgn1');
     expect(r.ok).toBe(true);
-    expect(mockAssignment.delete).toHaveBeenCalledWith({ where: { id: 'asgn1' } });
+    expect(txAssignmentDelete).toHaveBeenCalledWith({ where: { id: 'asgn1' } });
     expect(revalidatePath).toHaveBeenCalledWith('/assignments');
   });
 
   it('deletes TRANSFERRED assignment successfully', async () => {
     mockAuth.mockResolvedValue(adminSession);
     mockAssignment.findUnique.mockResolvedValue({ id: 'asgn1', status: 'TRANSFERRED' });
-    mockAssignment.delete.mockResolvedValue({});
+    mockTransaction.mockImplementation(async (fn: (tx: unknown) => unknown) => {
+      const tx = {
+        assignment: {
+          findUnique: vi.fn().mockResolvedValue({ assetId: 'asset1', employeeId: 'emp1', status: 'TRANSFERRED' }),
+          delete: vi.fn().mockResolvedValue({}),
+        },
+        auditLog: { create: vi.fn().mockResolvedValue({}) },
+      };
+      return fn(tx);
+    });
     const r = await deleteAssignmentAction('asgn1');
     expect(r.ok).toBe(true);
   });
@@ -672,6 +710,162 @@ describe('searchAssignmentsAction', () => {
     expect(r.ok).toBe(true);
     if (!r.ok) return;
     expect(r.data).toHaveLength(0);
+  });
+});
+
+// ─── Audit: createAssignmentAction ────────────────────────────────────────────
+
+describe('audit — createAssignmentAction', () => {
+  it('calls writeAudit with action=CREATE, before=null, after has assetId+employeeId+status', async () => {
+    mockAuth.mockResolvedValue(adminSession);
+    const { writeAudit } = await import('@/lib/audit');
+    const mockWriteAudit = writeAudit as ReturnType<typeof vi.fn>;
+
+    const createdAssignment = {
+      ...fakeDbAssignment,
+      id: 'asgn-audit-1',
+      status: 'ACTIVE',
+    };
+
+    mockTransaction.mockImplementation(async (fn: (tx: unknown) => unknown) => {
+      const tx = {
+        assignment: {
+          findFirst: vi.fn().mockResolvedValue(null),
+          create: vi.fn().mockResolvedValue(createdAssignment),
+        },
+        auditLog: { create: vi.fn().mockResolvedValue({}) },
+      };
+      return fn(tx);
+    });
+
+    await createAssignmentAction({ assetId: 'asset1', employeeId: 'emp1' });
+
+    expect(mockWriteAudit).toHaveBeenCalled();
+    const callArgs = mockWriteAudit.mock.calls[0][1];
+    expect(callArgs.action).toBe('CREATE');
+    expect(callArgs.entity).toBe('Assignment');
+    expect(callArgs.before).toBeNull();
+    expect(callArgs.after).toMatchObject({
+      assetId: 'asset1',
+      employeeId: 'emp1',
+      status: 'ACTIVE',
+    });
+  });
+});
+
+// ─── Audit: returnAssignmentAction ────────────────────────────────────────────
+
+describe('audit — returnAssignmentAction', () => {
+  it('calls writeAudit with action=RETURNED, before.status=ACTIVE, after.status=RETURNED', async () => {
+    mockAuth.mockResolvedValue(adminSession);
+    const { writeAudit } = await import('@/lib/audit');
+    const mockWriteAudit = writeAudit as ReturnType<typeof vi.fn>;
+
+    const returnedAssignment = {
+      ...fakeDbAssignment,
+      status: 'RETURNED',
+      returnedAt: new Date('2025-06-01T00:00:00.000Z'),
+    };
+
+    mockTransaction.mockImplementation(async (fn: (tx: unknown) => unknown) => {
+      const tx = {
+        assignment: {
+          update: vi.fn().mockResolvedValue(returnedAssignment),
+        },
+        auditLog: { create: vi.fn().mockResolvedValue({}) },
+      };
+      return fn(tx);
+    });
+
+    await returnAssignmentAction('asgn1', {});
+
+    expect(mockWriteAudit).toHaveBeenCalled();
+    const callArgs = mockWriteAudit.mock.calls[0][1];
+    expect(callArgs.action).toBe('RETURNED');
+    expect(callArgs.entity).toBe('Assignment');
+    expect(callArgs.before).toMatchObject({ status: 'ACTIVE' });
+    expect(callArgs.after).toMatchObject({ status: 'RETURNED' });
+  });
+});
+
+// ─── Audit: transferAssignmentAction (S-11) ───────────────────────────────────
+
+describe('audit — transferAssignmentAction (S-11)', () => {
+  it('calls writeAudit with action=TRANSFERRED, before.employeeId=emp-old, after.employeeId=emp-new', async () => {
+    mockAuth.mockResolvedValue(adminSession);
+    const { writeAudit } = await import('@/lib/audit');
+    const mockWriteAudit = writeAudit as ReturnType<typeof vi.fn>;
+
+    const transferredAssignment = {
+      ...fakeDbAssignment,
+      status: 'TRANSFERRED',
+      returnedAt: new Date(),
+      assetId: 'asset1',
+    };
+    const newAssignment = {
+      ...fakeDbAssignment,
+      id: 'new-assign-1',
+      employeeId: 'emp-new',
+      employee: { fullName: 'María López', email: 'maria@novahold.com' },
+      status: 'ACTIVE',
+    };
+
+    mockTransaction.mockImplementation(async (fn: (tx: unknown) => unknown) => {
+      const tx = {
+        assignment: {
+          findUnique: vi.fn().mockResolvedValue({ employeeId: 'emp-old', status: 'ACTIVE' }),
+          update: vi.fn().mockResolvedValue(transferredAssignment),
+          findFirst: vi.fn().mockResolvedValue(null),
+          create: vi.fn().mockResolvedValue(newAssignment),
+        },
+        auditLog: { create: vi.fn().mockResolvedValue({}) },
+      };
+      return fn(tx);
+    });
+
+    await transferAssignmentAction('source-assign-id', { newEmployeeId: 'emp-new' });
+
+    expect(mockWriteAudit).toHaveBeenCalled();
+    const callArgs = mockWriteAudit.mock.calls[0][1];
+    expect(callArgs.action).toBe('TRANSFERRED');
+    expect(callArgs.entity).toBe('Assignment');
+    expect(callArgs.before).toMatchObject({ employeeId: 'emp-old' });
+    expect(callArgs.after).toMatchObject({ employeeId: 'emp-new' });
+    expect(callArgs.after.newAssignmentId).toBe('new-assign-1');
+  });
+});
+
+// ─── Audit: deleteAssignmentAction ────────────────────────────────────────────
+
+describe('audit — deleteAssignmentAction', () => {
+  it('calls writeAudit with action=DELETE, before has assetId+employeeId+status, after=null', async () => {
+    mockAuth.mockResolvedValue(adminSession);
+    const { writeAudit } = await import('@/lib/audit');
+    const mockWriteAudit = writeAudit as ReturnType<typeof vi.fn>;
+
+    const snapshot = { assetId: 'asset1', employeeId: 'emp1', status: 'RETURNED' };
+    mockAssignment.findUnique.mockResolvedValue({ id: 'asgn1', status: 'RETURNED', ...snapshot });
+
+    mockTransaction.mockImplementation(async (fn: (tx: unknown) => unknown) => {
+      const tx = {
+        assignment: {
+          findUnique: vi.fn().mockResolvedValue(snapshot),
+          delete: vi.fn().mockResolvedValue({}),
+        },
+        auditLog: { create: vi.fn().mockResolvedValue({}) },
+      };
+      return fn(tx);
+    });
+
+    const r = await deleteAssignmentAction('asgn1');
+    expect(r.ok).toBe(true);
+
+    expect(mockWriteAudit).toHaveBeenCalled();
+    const callArgs = mockWriteAudit.mock.calls[0][1];
+    expect(callArgs.action).toBe('DELETE');
+    expect(callArgs.entity).toBe('Assignment');
+    expect(callArgs.before).toMatchObject({ assetId: 'asset1', employeeId: 'emp1', status: 'RETURNED' });
+    expect(callArgs.after).toBeNull();
   });
 });
 
