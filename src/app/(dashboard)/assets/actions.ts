@@ -7,6 +7,7 @@ import { auth } from '@/auth';
 import { prisma } from '@/lib/prisma';
 import { hasPermission } from '@/lib/permissions';
 import { ok, err, type ActionResult } from '@/shared/types/action-result';
+import { writeAudit, AuditActions, getRequestMeta } from '@/lib/audit';
 import type { ExcelImportResult, ExcelRowError } from '@/shared/ui/types/excel-import.types';
 import { calculateDepreciation } from '@/lib/depreciation';
 import { buildAssetCreateSchema, buildAssetUpdateSchema } from './presentation/schemas/asset.schema';
@@ -280,6 +281,8 @@ export async function createAssetAction(
     return err('VALIDATION', 'Datos inválidos', yupToFieldErrors(e));
   }
 
+  const { ip, userAgent } = await getRequestMeta();
+
   try {
     const asset = await prisma.$transaction(async (tx) => {
       let assetCode = '';
@@ -299,7 +302,7 @@ export async function createAssetAction(
           ? await computePurchasePriceBase(tx, dto.purchasePrice, dto.currencyCode, dto.purchaseDate)
           : null;
 
-      return tx.asset.create({
+      const created = await tx.asset.create({
         data: {
           assetCode,
           categoryId: dto.categoryId,
@@ -330,6 +333,25 @@ export async function createAssetAction(
         },
         include: assetInclude,
       });
+
+      await writeAudit(tx, {
+        userId: g.userId,
+        action: AuditActions.CREATE,
+        entity: 'Asset',
+        entityId: created.id,
+        assetId: created.id,
+        before: null,
+        after: {
+          id: created.id,
+          assetCode: created.assetCode,
+          categoryId: created.categoryId,
+          locationId: created.locationId ?? null,
+        },
+        ip,
+        userAgent,
+      });
+
+      return created;
     });
 
     revalidatePath('/assets');
@@ -363,6 +385,8 @@ export async function updateAssetAction(
     return err('VALIDATION', 'Datos inválidos', yupToFieldErrors(e));
   }
 
+  const { ip, userAgent } = await getRequestMeta();
+
   try {
     const data: Record<string, unknown> = {};
     if (dto.brand !== undefined) data.brand = dto.brand ?? null;
@@ -389,8 +413,36 @@ export async function updateAssetAction(
     if (dto.bodegaId !== undefined) data.bodegaId = dto.bodegaId ?? null;
     if (dto.parentAssetId !== undefined) data.parentAssetId = dto.parentAssetId ?? null;
 
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const asset = await prisma.asset.update({ where: { id }, data: data as any, include: assetInclude });
+    const asset = await prisma.$transaction(async (tx) => {
+      const snapshot = await tx.asset.findUnique({
+        where: { id },
+        select: { assetCode: true, categoryId: true, locationId: true, bodegaId: true },
+      });
+      if (!snapshot) throw { code: 'P2025' };
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const updated = await tx.asset.update({ where: { id }, data: data as any, include: assetInclude });
+
+      await writeAudit(tx, {
+        userId: g.userId,
+        action: AuditActions.UPDATE,
+        entity: 'Asset',
+        entityId: id,
+        assetId: id,
+        before: snapshot,
+        after: {
+          assetCode: updated.assetCode,
+          categoryId: updated.categoryId,
+          locationId: updated.locationId ?? null,
+          bodegaId: updated.bodegaId ?? null,
+        },
+        ip,
+        userAgent,
+      });
+
+      return updated;
+    });
+
     revalidatePath('/assets');
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     return ok(toAssetRow(asset as any));
@@ -410,8 +462,23 @@ export async function deactivateAssetAction(id: string): Promise<ActionResult<vo
   const g = await requireWrite();
   if (!g.ok) return g.error;
 
+  const { ip, userAgent } = await getRequestMeta();
+
   try {
-    await prisma.asset.update({ where: { id }, data: { isActive: false } });
+    await prisma.$transaction(async (tx) => {
+      await tx.asset.update({ where: { id }, data: { isActive: false } });
+      await writeAudit(tx, {
+        userId: g.userId,
+        action: AuditActions.DEACTIVATE,
+        entity: 'Asset',
+        entityId: id,
+        assetId: id,
+        before: { isActive: true },
+        after: { isActive: false },
+        ip,
+        userAgent,
+      });
+    });
     revalidatePath('/assets');
     return ok(undefined);
   } catch (e) {
@@ -426,6 +493,7 @@ export async function deleteAssetAction(id: string): Promise<ActionResult<void>>
   const g = await requireWrite();
   if (!g.ok) return g.error;
 
+  // HAS_CHILDREN guard stays BEFORE the transaction
   const row = await prisma.asset.findUnique({
     where: { id },
     select: { _count: { select: { assignments: true, components: true } } },
@@ -442,9 +510,37 @@ export async function deleteAssetAction(id: string): Promise<ActionResult<void>>
       `No se puede eliminar: tiene ${row._count.components} componentes vinculados.`,
     );
 
-  await prisma.asset.delete({ where: { id } });
-  revalidatePath('/assets');
-  return ok(undefined);
+  const { ip, userAgent } = await getRequestMeta();
+
+  try {
+    await prisma.$transaction(async (tx) => {
+      const snapshot = await tx.asset.findUnique({
+        where: { id },
+        select: { assetCode: true, categoryId: true, locationId: true },
+      });
+      if (!snapshot) throw { code: 'P2025' };
+
+      // Audit BEFORE delete — assetId FK must still resolve at insert time
+      await writeAudit(tx, {
+        userId: g.userId,
+        action: AuditActions.DELETE,
+        entity: 'Asset',
+        entityId: id,
+        assetId: id,
+        before: snapshot,
+        after: null,
+        ip,
+        userAgent,
+      });
+
+      await tx.asset.delete({ where: { id } });
+    });
+    revalidatePath('/assets');
+    return ok(undefined);
+  } catch (e) {
+    if (isP2025(e)) return err('NOT_FOUND', 'Activo no encontrado');
+    return err('UNKNOWN', 'Error al eliminar activo');
+  }
 }
 
 // ─── Import ────────────────────────────────────────────────────────────────

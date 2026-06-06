@@ -5,6 +5,7 @@ import { auth } from '@/auth';
 import { prisma } from '@/lib/prisma';
 import { hasPermission } from '@/lib/permissions';
 import { ok, err, type ActionResult } from '@/shared/types/action-result';
+import { writeAudit, AuditActions, getRequestMeta } from '@/lib/audit';
 import { createMaintenanceSchema, updateMaintenanceSchema } from './presentation/schemas/maintenance.schema';
 import { toMaintenanceRow, maintenanceInclude } from './presentation/mappers/maintenance.mapper';
 import type { MaintenanceRow, CreateMaintenanceDTO, UpdateMaintenanceDTO, MaintenanceStats, PendingMaintenanceRow } from './presentation/dto/maintenance.dto';
@@ -153,6 +154,8 @@ export async function createMaintenanceAction(
     return err('VALIDATION', 'Datos inválidos', yupToFieldErrors(e));
   }
 
+  const { ip, userAgent } = await getRequestMeta();
+
   try {
     const created = await prisma.$transaction(async (tx) => {
       const maintenance = await tx.maintenance.create({
@@ -173,6 +176,22 @@ export async function createMaintenanceAction(
           data: { lastRevision: new Date(dto.performedAt) },
         });
       }
+
+      await writeAudit(tx, {
+        userId: session.user.id as string,
+        action: AuditActions.CREATE,
+        entity: 'Maintenance',
+        entityId: maintenance.id,
+        before: null,
+        after: {
+          assetId: maintenance.assetId,
+          type: maintenance.type,
+          performedAt: maintenance.performedAt,
+          performedBy: maintenance.performedBy ?? null,
+        },
+        ip,
+        userAgent,
+      });
 
       return maintenance;
     });
@@ -203,6 +222,14 @@ export async function updateMaintenanceAction(
     return err('VALIDATION', 'Datos inválidos', yupToFieldErrors(e));
   }
 
+  const { ip, userAgent } = await getRequestMeta();
+
+  // Pre-fetch snapshot BEFORE transaction
+  const snapshot = await prisma.maintenance.findUnique({
+    where: { id },
+    select: { type: true, description: true, performedBy: true, performedAt: true, nextReview: true },
+  });
+
   try {
     const updated = await prisma.$transaction(async (tx) => {
       const maintenance = await tx.maintenance.update({
@@ -224,6 +251,23 @@ export async function updateMaintenanceAction(
         });
       }
 
+      await writeAudit(tx, {
+        userId: session.user.id as string,
+        action: AuditActions.UPDATE,
+        entity: 'Maintenance',
+        entityId: id,
+        before: snapshot,
+        after: {
+          type: maintenance.type,
+          description: maintenance.description ?? null,
+          performedBy: maintenance.performedBy ?? null,
+          performedAt: maintenance.performedAt,
+          nextReview: maintenance.nextReview ?? null,
+        },
+        ip,
+        userAgent,
+      });
+
       return maintenance;
     });
 
@@ -244,8 +288,30 @@ export async function deleteMaintenanceAction(id: string): Promise<ActionResult<
   if (!hasPermission(session.user.role as Role, 'maintenance', 'delete'))
     return err('FORBIDDEN', 'Sin permiso');
 
+  // Pre-fetch snapshot BEFORE transaction
+  const snapshot = await prisma.maintenance.findUnique({
+    where: { id },
+    select: { assetId: true, type: true, performedAt: true },
+  });
+
+  const { ip, userAgent } = await getRequestMeta();
+
   try {
-    await prisma.maintenance.delete({ where: { id } });
+    await prisma.$transaction(async (tx) => {
+      // writeAudit BEFORE delete (audit snapshot must be captured first)
+      await writeAudit(tx, {
+        userId: session.user!.id as string,
+        action: AuditActions.DELETE,
+        entity: 'Maintenance',
+        entityId: id,
+        before: snapshot,
+        after: null,
+        ip,
+        userAgent,
+      });
+
+      await tx.maintenance.delete({ where: { id } });
+    });
     revalidatePath('/maintenance');
     return ok(undefined);
   } catch (e) {

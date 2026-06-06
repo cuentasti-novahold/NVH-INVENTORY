@@ -5,6 +5,7 @@ import { auth } from '@/auth';
 import { prisma } from '@/lib/prisma';
 import { hasPermission } from '@/lib/permissions';
 import { ok, err, type ActionResult } from '@/shared/types/action-result';
+import { writeAudit, AuditActions, getRequestMeta } from '@/lib/audit';
 import { createMovementSchema } from './presentation/schemas/movement.schema';
 import { toMovementRow, movementInclude } from './presentation/mappers/movement.mapper';
 import type { MovementRow, CreateMovementDTO } from './presentation/dto/movement.dto';
@@ -156,6 +157,8 @@ export async function createMovementAction(
     return err('VALIDATION', 'Datos inválidos', yupToFieldErrors(e));
   }
 
+  const { ip, userAgent } = await getRequestMeta();
+
   try {
     const created = await prisma.$transaction(async (tx) => {
       const movement = await tx.assetMovement.create({
@@ -181,15 +184,16 @@ export async function createMovementAction(
         },
       });
 
-      await tx.auditLog.create({
-        data: {
-          userId: session.user!.id as string,
-          action: 'MOVED',
-          entity: 'Asset',
-          entityId: dto.assetId,
-          before: { locationId: dto.fromLocationId ?? null, bodegaId: dto.fromBodegaId ?? null },
-          after: { locationId: dto.toLocationId, bodegaId: dto.toBodegaId ?? null },
-        },
+      await writeAudit(tx, {
+        userId: session.user!.id as string,
+        action: AuditActions.MOVED,
+        entity: 'Asset',
+        entityId: dto.assetId,
+        assetId: dto.assetId,
+        before: { locationId: dto.fromLocationId ?? null, bodegaId: dto.fromBodegaId ?? null },
+        after: { locationId: dto.toLocationId, bodegaId: dto.toBodegaId ?? null },
+        ip,
+        userAgent,
       });
 
       return movement;

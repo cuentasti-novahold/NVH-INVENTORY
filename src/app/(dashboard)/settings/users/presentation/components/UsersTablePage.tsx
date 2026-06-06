@@ -61,14 +61,13 @@ export function UsersTablePage({
   function onChangeRole(userId: string, newRole: UserRole) {
     setPendingId(userId);
     startTransition(async () => {
-      try {
-        await updateUserRole(userId, newRole);
+      const result = await updateUserRole(userId, newRole);
+      if (result.ok) {
         toast.success('Rol actualizado correctamente');
-      } catch (err) {
-        toast.error(err instanceof Error ? err.message : 'Error al actualizar el rol');
-      } finally {
-        setPendingId(null);
+      } else {
+        toast.error(result.message ?? 'Error al actualizar el rol');
       }
+      setPendingId(null);
     });
   }
 
