@@ -58,6 +58,7 @@ export const SIDEBAR_NAV_SECTIONS: SidebarNavSection[] = [
     label: 'SISTEMA',
     items: [
       { href: '/settings/users', label: 'Usuarios', icon: ShieldCheck, resource: 'users' },
+      { href: '/audit-log', label: 'Auditoría', icon: ClipboardList, resource: 'auditLogs' },
     ],
   },
 ];

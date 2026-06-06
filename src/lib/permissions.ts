@@ -2,7 +2,8 @@ import type { UserRole } from '@/generated/prisma';
 
 export type Resource =
   | 'assets' | 'employees' | 'assignments' | 'categories'
-  | 'locations' | 'maintenance' | 'users' | 'movements' | 'currencies' | 'departments';
+  | 'locations' | 'maintenance' | 'users' | 'movements' | 'currencies' | 'departments'
+  | 'auditLogs';
 
 export type Action = 'create' | 'read' | 'update' | 'delete';
 
@@ -10,7 +11,7 @@ type Permission = '*' | `${Resource}:*` | `${Resource}:${Action}`;
 
 const PERMISSIONS: Record<UserRole, readonly Permission[]> = {
   SUPER_ADMIN: ['*'],
-  ADMIN: ['assets:*', 'employees:*', 'assignments:*', 'categories:*', 'locations:*', 'movements:*', 'maintenance:*', 'currencies:*', 'departments:*'],
+  ADMIN: ['assets:*', 'employees:*', 'assignments:*', 'categories:*', 'locations:*', 'movements:*', 'maintenance:*', 'currencies:*', 'departments:*', 'auditLogs:read'],
   MANAGER: ['assets:read', 'employees:read', 'assignments:create', 'categories:read', 'locations:read', 'movements:read', 'movements:create', 'maintenance:read', 'currencies:read', 'departments:read'],
   TECHNICIAN: ['assets:read', 'assets:create', 'assets:update', 'employees:read', 'maintenance:create', 'maintenance:read', 'maintenance:update', 'categories:read', 'locations:read', 'movements:read', 'movements:create', 'currencies:read', 'departments:read'],
   VIEWER: ['assets:read', 'employees:read', 'categories:read', 'locations:read', 'movements:read', 'maintenance:read', 'currencies:read', 'departments:read'],
