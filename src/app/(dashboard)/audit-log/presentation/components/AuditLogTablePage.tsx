@@ -5,16 +5,11 @@ import { useRouter, usePathname, useSearchParams } from 'next/navigation';
 import type { ColumnDef } from '@tanstack/react-table';
 import { Eye, ClipboardList } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-} from '@/components/ui/dialog';
 import { MainDataTable } from '@/components/tables/MainTable';
 import { TableSkeleton } from '@/components/tables/TableSkeleton';
 import { Show } from '@/components/show/Show.component';
 import { auditLogColumns } from './columns-audit-log';
+import { AuditDiffDialog } from './AuditDiffDialog';
 import { useAuditLogs } from '../hooks/use-audit-logs';
 import type { AuditLogRow } from '../dto/audit-log.dto';
 import type { ListAuditLogsResult } from '../../actions';
@@ -103,45 +98,11 @@ export function AuditLogTablePage({ initialData }: Props) {
         </Show>
       </Show>
 
-      {/* Detail dialog — before/after diff viewer */}
-      <Dialog
+      <AuditDiffDialog
         open={dialog.open}
+        row={dialog.row}
         onOpenChange={(open) => setDialog((prev) => ({ ...prev, open }))}
-      >
-        <DialogContent className="max-w-2xl max-h-[80vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>
-              Detalle de cambio — {dialog.row?.entity}{' '}
-              <span className="font-mono text-sm text-muted-foreground">
-                {dialog.row?.action}
-              </span>
-            </DialogTitle>
-          </DialogHeader>
-
-          <div className="grid gap-4 mt-2">
-            <div>
-              <p className="text-xs font-semibold uppercase text-muted-foreground mb-1">
-                Antes
-              </p>
-              <pre className="rounded-md bg-muted p-3 text-xs overflow-x-auto whitespace-pre-wrap break-all">
-                {dialog.row?.before
-                  ? JSON.stringify(dialog.row.before, null, 2)
-                  : '—'}
-              </pre>
-            </div>
-            <div>
-              <p className="text-xs font-semibold uppercase text-muted-foreground mb-1">
-                Después
-              </p>
-              <pre className="rounded-md bg-muted p-3 text-xs overflow-x-auto whitespace-pre-wrap break-all">
-                {dialog.row?.after
-                  ? JSON.stringify(dialog.row.after, null, 2)
-                  : '—'}
-              </pre>
-            </div>
-          </div>
-        </DialogContent>
-      </Dialog>
+      />
     </div>
   );
 }
