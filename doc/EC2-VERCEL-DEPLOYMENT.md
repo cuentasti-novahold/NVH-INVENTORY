@@ -30,12 +30,16 @@ function createAdapter() {
     user: url.username,
     password: url.password,
     database: url.pathname.slice(1),
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     ssl: {
       rejectUnauthorized: true,
-      ca:   process.env.DB_SSL_CA,    // ca-cert.pem
-      cert: process.env.DB_SSL_CERT,  // client-cert.pem
-      key:  process.env.DB_SSL_KEY,   // client-key.pem
-    },
+      ca:   process.env.DB_SSL_CA?.replace(/\\n/g, '\n'),
+      cert: process.env.DB_SSL_CERT?.replace(/\\n/g, '\n'),
+      key:  process.env.DB_SSL_KEY?.replace(/\\n/g, '\n'),
+      // El driver mariadb hace reverse DNS del IP y obtiene "localhost." como hostname.
+      // checkServerIdentity omite ese binding — CA chain + mTLS siguen activos.
+      checkServerIdentity: () => undefined,
+    } as any,
     connectionLimit: 3,
     idleTimeout: 10,
   });

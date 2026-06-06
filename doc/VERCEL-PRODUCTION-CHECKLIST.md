@@ -130,31 +130,32 @@ O pushear un commit nuevo.
 | `AADSTS50011: Redirect URI mismatch` | La URL de Vercel deployment se usa en vez de la de producción | Agregar `NEXTAUTH_URL=https://<tu-app>.vercel.app` solo en Production |
 | `error=Configuration` (500) | `AUTH_SECRET` no está cargada o el deployment es viejo | Agregar `AUTH_SECRET` y forzar Redeploy |
 | `PEM routines: no start line` | Los certs en Vercel no tienen los headers `-----BEGIN...-----` | Re-pegar el contenido completo del PEM desde EC2 |
-| `Hostname does not match certificate CN` | `DATABASE_URL` apunta a IP pero el cert tiene CN de hostname | `rejectUnauthorized: false` en `src/lib/prisma.ts` (ver nota abajo) |
+| `Host: localhost. is not cert's CN: novahold-db-server` | El driver mariadb hace reverse DNS del IP y obtiene `localhost.` | Agregar `checkServerIdentity: () => undefined` al objeto `ssl` en `src/lib/prisma.ts` (ver nota abajo) |
 | `JWTSessionError: Invalid Compact JWE` | Middleware usa JWT pero API usaba database sessions | Confirmado resuelto: `session: { strategy: 'jwt' }` en `src/auth.ts` |
 | `pool timeout after 10001ms` | Certs SSL malformados o DB inaccesible | Verificar certs y que el Security Group de EC2 permite 3306 desde `0.0.0.0/0` |
 
 ---
 
-## Nota sobre rejectUnauthorized
+## Nota sobre SSL y hostname verification
 
-En `src/lib/prisma.ts`, `rejectUnauthorized: false` está activo porque el cert del servidor MySQL tiene `CN=novahold-db-server` pero la conexión va por IP (`13.216.x.x`).
+El driver mariadb hace **reverse DNS** del IP de la EC2 y obtiene `localhost.` como hostname. Eso hace fallar la verificación estándar de hostname aunque el cert tenga `SAN=IP:13.216.111.219`.
 
-La conexión sigue siendo **encriptada y autenticada por mTLS**. Solo se desactiva la verificación del hostname.
+La solución correcta es mantener `rejectUnauthorized: true` (verifica CA chain) y agregar `checkServerIdentity: () => undefined` para saltear solo el binding de hostname — que es redundante cuando mTLS ya autentica mutuamente client y server.
 
-**Solución definitiva** (pendiente): regenerar el cert del servidor MySQL en EC2 con `subjectAltName=IP:13.216.x.x`:
+El objeto `ssl` en `src/lib/prisma.ts` debe quedar así:
 
-```bash
-# En EC2
-openssl req -newkey rsa:2048 -nodes -keyout server-key.pem -out server-req.pem \
-  -subj "/CN=novahold-db-server" \
-  -addext "subjectAltName=IP:13.216.111.219"
-openssl x509 -req -days 3650 -CA ca-cert.pem -CAkey ca-key.pem \
-  -set_serial 02 -in server-req.pem -out server-cert.pem \
-  -extfile <(echo "subjectAltName=IP:13.216.111.219")
+```ts
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+ssl: {
+  rejectUnauthorized: true,
+  ca:   process.env.DB_SSL_CA?.replace(/\\n/g, '\n'),
+  cert: process.env.DB_SSL_CERT?.replace(/\\n/g, '\n'),
+  key:  process.env.DB_SSL_KEY?.replace(/\\n/g, '\n'),
+  checkServerIdentity: () => undefined,
+} as any,
 ```
 
-Después de regenerar: subir el nuevo `ca-cert.pem` a Vercel y volver a `rejectUnauthorized: true`.
+**Por qué es seguro**: `rejectUnauthorized: true` + CA propia verifica que el servidor tenga un cert firmado por tu CA. mTLS verifica el client cert. El hostname check es lo único que se omite, y es redundante en este contexto.
 
 ---
 
