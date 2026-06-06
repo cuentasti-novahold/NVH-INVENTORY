@@ -25,3 +25,10 @@ export function hasPermission(role: UserRole, resource: Resource, action: Action
     perms.includes(`${resource}:${action}` as Permission)
   );
 }
+
+/** Returns true if the role has any permission (read/create/update/delete) on the resource. */
+export function canAccessResource(role: UserRole, resource: Resource): boolean {
+  return (['read', 'create', 'update', 'delete'] as const).some(
+    (action) => hasPermission(role, resource, action),
+  );
+}

@@ -7,7 +7,7 @@ import { ChevronLeft, ChevronRight, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { SidebarNavItem } from '@/components/dashboard/SidebarNavItem';
 import { SidebarUserCard } from '@/components/dashboard/SidebarUserCard';
-import { SIDEBAR_NAV_SECTIONS } from '@/components/dashboard/sidebar-nav-config';
+import { getFilteredNavSections } from '@/components/dashboard/sidebar-nav-config';
 import { useSidebar } from '@/components/dashboard/sidebar-context';
 import type { UserRole } from '@/generated/prisma';
 
@@ -46,7 +46,7 @@ export function DashboardSidebar({ user }: DashboardSidebarProps) {
 
       <aside
         className={cn(
-          'flex flex-col bg-sidebar text-sidebar-foreground',
+          'flex flex-col bg-sidebar text-sidebar-foreground border-r border-sidebar-primary/40',
           // Mobile: fixed overlay (out of flow)
           'fixed inset-y-0 left-0 z-50 w-72',
           mobileOpen ? 'translate-x-0' : '-translate-x-full',
@@ -58,63 +58,68 @@ export function DashboardSidebar({ user }: DashboardSidebarProps) {
           'transition-[width,transform] duration-200 ease-out',
         )}
       >
-        {/* Brand + collapse toggle */}
+        {/* Brand header */}
         <div
           className={cn(
-            'relative flex items-center shrink-0 bg-sidebar-primary/15',
-            isCollapsed ? 'justify-center px-3 py-4' : 'px-5 py-[14px] pr-10',
+            'flex items-center justify-center shrink-0 border-b border-sidebar-primary/20',
+            isCollapsed ? 'px-3 py-4' : 'px-4 py-3',
           )}
+          style={!isCollapsed ? {
+            background: [
+              'radial-gradient(circle, rgba(20,50,80,0.06) 1px, transparent 1px) center/18px 18px',
+              'radial-gradient(ellipse at 50% 0%, oklch(0.97 0.018 210) 0%, oklch(0.91 0.035 218) 100%)',
+            ].join(', '),
+          } : undefined}
         >
           {isCollapsed ? (
-            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-sidebar-primary/15 ring-1 ring-sidebar-primary/30 text-sidebar-primary text-[11px] font-bold tracking-tight select-none">
+            <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-sidebar-primary/20 text-sidebar-primary text-[11px] font-bold tracking-tight select-none">
               NH
             </div>
           ) : (
-            <div className="overflow-hidden rounded-xl ring-1 ring-sidebar-primary/25 shadow-[0_0_0_4px_rgba(23,175,149,0.06)]">
-              <Image
-                src="/images/logo.png"
-                alt="Novahold Enterprises"
-                width={100}
-                height={73}
-                className="block"
-                priority
-              />
-            </div>
+            <Image
+              src="/images/logo.png"
+              alt="Novahold Enterprises"
+              width={120}
+              height={88}
+              className="block"
+              priority
+            />
           )}
-
-          {/* Desktop collapse toggle */}
-          <button
-            type="button"
-            onClick={toggle}
-            className={cn(
-              'absolute right-2 top-1/2 -translate-y-1/2',
-              'hidden lg:flex h-6 w-6 items-center justify-center',
-              'rounded-md text-sidebar-foreground/40',
-              'hover:bg-sidebar-accent hover:text-sidebar-foreground transition-colors',
-            )}
-            aria-label={collapsed ? 'Expandir menú' : 'Contraer menú'}
-          >
-            {collapsed ? (
-              <ChevronRight className="h-3.5 w-3.5" aria-hidden />
-            ) : (
-              <ChevronLeft className="h-3.5 w-3.5" aria-hidden />
-            )}
-          </button>
 
           {/* Mobile close button */}
           <button
             type="button"
             onClick={closeMobile}
-            className="absolute right-3 top-1/2 -translate-y-1/2 lg:hidden flex h-7 w-7 items-center justify-center rounded-md text-sidebar-foreground/40 hover:text-sidebar-foreground transition-colors"
+            className="absolute right-3 top-4 lg:hidden flex h-7 w-7 items-center justify-center rounded-md text-sidebar-foreground/50 hover:text-sidebar-foreground transition-colors"
             aria-label="Cerrar menú"
           >
             <X className="h-4 w-4" aria-hidden />
           </button>
         </div>
 
+        {/* Desktop collapse toggle — mounted on the right border of the aside */}
+        <button
+          type="button"
+          onClick={toggle}
+          className={cn(
+            'absolute right-0 translate-x-1/2 top-14 z-20',
+            'hidden lg:flex h-6 w-6 items-center justify-center',
+            'rounded-full bg-sidebar border border-sidebar-primary/40',
+            'text-sidebar-foreground/60 hover:text-sidebar-foreground',
+            'shadow-sm transition-colors',
+          )}
+          aria-label={collapsed ? 'Expandir menú' : 'Contraer menú'}
+        >
+          {collapsed ? (
+            <ChevronRight className="h-3.5 w-3.5" aria-hidden />
+          ) : (
+            <ChevronLeft className="h-3.5 w-3.5" aria-hidden />
+          )}
+        </button>
+
         {/* Nav */}
         <nav className="flex-1 overflow-y-auto overflow-x-hidden px-2" aria-label="Navegación principal">
-          {SIDEBAR_NAV_SECTIONS.map((section) => (
+          {getFilteredNavSections(user.role).map((section) => (
             <div key={section.label} className="pb-2">
               {isCollapsed ? (
                 <div className="pt-4 pb-1 flex justify-center">

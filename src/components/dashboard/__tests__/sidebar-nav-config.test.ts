@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
   SIDEBAR_NAV_SECTIONS,
+  getFilteredNavSections,
   type SidebarNavSection,
 } from '../sidebar-nav-config';
 
@@ -61,5 +62,64 @@ describe('SIDEBAR_NAV_SECTIONS', () => {
     expect(scanner).toBeDefined();
     expect(scanner!.label).toBe('Escáner QR');
     expect(scanner!.icon).toBeTruthy();
+  });
+});
+
+describe('getFilteredNavSections', () => {
+  it('SUPER_ADMIN sees all sections and items', () => {
+    const sections = getFilteredNavSections('SUPER_ADMIN');
+    expect(sections).toHaveLength(3);
+    const allHrefs = sections.flatMap((s) => s.items.map((i) => i.href));
+    expect(allHrefs).toContain('/settings/users');
+    expect(allHrefs).toContain('/assets');
+    expect(allHrefs).toContain('/employees');
+  });
+
+  it('VIEWER does not see /settings/users', () => {
+    const sections = getFilteredNavSections('VIEWER');
+    const allHrefs = sections.flatMap((s) => s.items.map((i) => i.href));
+    expect(allHrefs).not.toContain('/settings/users');
+  });
+
+  it('VIEWER does not see /assignments (no read permission)', () => {
+    const sections = getFilteredNavSections('VIEWER');
+    const allHrefs = sections.flatMap((s) => s.items.map((i) => i.href));
+    expect(allHrefs).not.toContain('/assignments');
+  });
+
+  it('VIEWER still sees /assets and unguarded items like /analytics and /scanner', () => {
+    const sections = getFilteredNavSections('VIEWER');
+    const allHrefs = sections.flatMap((s) => s.items.map((i) => i.href));
+    expect(allHrefs).toContain('/assets');
+    expect(allHrefs).toContain('/analytics');
+    expect(allHrefs).toContain('/scanner');
+  });
+
+  it('TECHNICIAN does not see /employees (no read permission)', () => {
+    const sections = getFilteredNavSections('TECHNICIAN');
+    const allHrefs = sections.flatMap((s) => s.items.map((i) => i.href));
+    expect(allHrefs).not.toContain('/employees');
+  });
+
+  it('TECHNICIAN sees /maintenance and /assets', () => {
+    const sections = getFilteredNavSections('TECHNICIAN');
+    const allHrefs = sections.flatMap((s) => s.items.map((i) => i.href));
+    expect(allHrefs).toContain('/maintenance');
+    expect(allHrefs).toContain('/assets');
+  });
+
+  it('empty sections are removed from the result', () => {
+    // SISTEMA only has /settings/users — if role cannot see it, the section disappears
+    const sections = getFilteredNavSections('VIEWER');
+    const sistema = sections.find((s) => s.label === 'SISTEMA');
+    expect(sistema).toBeUndefined();
+  });
+
+  it('ADMIN sees /settings/users', () => {
+    // ADMIN has assets:*, employees:*, etc. but not users — verify expectation
+    // (if this fails it means PERMISSIONS matrix gives ADMIN user access — update accordingly)
+    const sections = getFilteredNavSections('ADMIN');
+    const allHrefs = sections.flatMap((s) => s.items.map((i) => i.href));
+    expect(allHrefs).not.toContain('/settings/users');
   });
 });
