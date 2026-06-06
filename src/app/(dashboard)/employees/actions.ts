@@ -308,7 +308,7 @@ export async function updateEmployeeAction(
   // Pre-fetch snapshot BEFORE transaction
   const snapshot = await prisma.employee.findUnique({
     where: { id },
-    select: { fullName: true, email: true, phone: true, position: true, departmentId: true, locationId: true },
+    select: { fullName: true, email: true, phone: true, position: true, isActive: true, departmentId: true, locationId: true },
   });
 
   try {
@@ -333,8 +333,8 @@ export async function updateEmployeeAction(
       const data: Record<string, unknown> = {};
       if (dto.fullName !== undefined) data.fullName = dto.fullName;
       if (dto.email !== undefined) data.email = dto.email;
-      if (dto.phone !== undefined) data.phone = dto.phone ?? null;
-      if (dto.position !== undefined) data.position = dto.position ?? null;
+      if (dto.phone !== undefined) data.phone = dto.phone || null;
+      if (dto.position !== undefined) data.position = dto.position || null;
       if (dto.isActive !== undefined) data.isActive = dto.isActive;
       if (dto.cityId !== undefined)
         data.city = dto.cityId ? { connect: { id: dto.cityId } } : { disconnect: true };
@@ -355,8 +355,9 @@ export async function updateEmployeeAction(
         after: {
           fullName: updated.fullName,
           email: updated.email,
-          phone: updated.phone ?? null,
-          position: updated.position ?? null,
+          phone: updated.phone || null,
+          position: updated.position || null,
+          isActive: updated.isActive,
           departmentId: updated.departmentId ?? null,
           locationId: updated.locationId ?? null,
         },
