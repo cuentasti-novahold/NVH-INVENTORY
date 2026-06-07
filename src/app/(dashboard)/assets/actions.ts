@@ -353,6 +353,9 @@ export async function createAssetAction(
           assetCode: created.assetCode,
           categoryId: created.categoryId,
           locationId: created.locationId ?? null,
+          locationName: created.location?.name ?? null,
+          bodegaId: created.bodegaId ?? null,
+          bodegaName: created.bodega?.name ?? null,
         },
         ip,
         userAgent,
@@ -423,7 +426,14 @@ export async function updateAssetAction(
     const asset = await prisma.$transaction(async (tx) => {
       const snapshot = await tx.asset.findUnique({
         where: { id },
-        select: { assetCode: true, categoryId: true, locationId: true, bodegaId: true },
+        select: {
+          assetCode: true,
+          categoryId: true,
+          locationId: true,
+          location: { select: { name: true } },
+          bodegaId: true,
+          bodega: { select: { name: true } },
+        },
       });
       if (!snapshot) throw { code: 'P2025' };
 
@@ -436,12 +446,21 @@ export async function updateAssetAction(
         entity: 'Asset',
         entityId: id,
         assetId: id,
-        before: snapshot,
+        before: {
+          assetCode: snapshot.assetCode,
+          categoryId: snapshot.categoryId,
+          locationId: snapshot.locationId,
+          locationName: snapshot.location?.name ?? null,
+          bodegaId: snapshot.bodegaId,
+          bodegaName: snapshot.bodega?.name ?? null,
+        },
         after: {
           assetCode: updated.assetCode,
           categoryId: updated.categoryId,
           locationId: updated.locationId ?? null,
+          locationName: updated.location?.name ?? null,
           bodegaId: updated.bodegaId ?? null,
+          bodegaName: updated.bodega?.name ?? null,
         },
         ip,
         userAgent,
@@ -523,7 +542,12 @@ export async function deleteAssetAction(id: string): Promise<ActionResult<void>>
     await prisma.$transaction(async (tx) => {
       const snapshot = await tx.asset.findUnique({
         where: { id },
-        select: { assetCode: true, categoryId: true, locationId: true },
+        select: {
+          assetCode: true,
+          categoryId: true,
+          locationId: true,
+          location: { select: { name: true } },
+        },
       });
       if (!snapshot) throw { code: 'P2025' };
 
@@ -534,7 +558,12 @@ export async function deleteAssetAction(id: string): Promise<ActionResult<void>>
         entity: 'Asset',
         entityId: id,
         assetId: id,
-        before: snapshot,
+        before: {
+          assetCode: snapshot.assetCode,
+          categoryId: snapshot.categoryId,
+          locationId: snapshot.locationId,
+          locationName: snapshot.location?.name ?? null,
+        },
         after: null,
         ip,
         userAgent,

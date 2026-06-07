@@ -70,7 +70,17 @@ export function AuditLogTablePage({ initialData }: Props) {
   );
 
   return (
-    <div className="flex h-full flex-col gap-4">
+    <div className="flex h-full flex-col gap-4 p-6 overflow-hidden">
+      <div className="flex items-center gap-3">
+        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+          <ClipboardList className="h-4 w-4" />
+        </div>
+        <div className="flex flex-col gap-0">
+          <h1 className="text-lg font-semibold tracking-tight">Registro de auditoría</h1>
+          <p className="text-xs text-muted-foreground">Historial de cambios en el sistema</p>
+        </div>
+      </div>
+
       <Show
         when={!pending}
         fallback={<TableSkeleton columns={7} />}
