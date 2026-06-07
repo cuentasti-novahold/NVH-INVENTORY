@@ -305,6 +305,19 @@ export async function updateEmployeeAction(
 
   const { ip, userAgent } = await getRequestMeta();
 
+  // Guard: block deactivation via edit form when employee has ACTIVE assignments
+  if (dto.isActive === false) {
+    const activeCount = await prisma.employee.findUnique({
+      where: { id },
+      select: { _count: { select: { assignments: { where: { status: 'ACTIVE' } } } } },
+    });
+    if (activeCount && activeCount._count.assignments > 0)
+      return err(
+        'HAS_CHILDREN',
+        `No se puede desactivar: tiene ${activeCount._count.assignments} asignaciones activas. Registrá la devolución de los activos primero.`,
+      );
+  }
+
   // Pre-fetch snapshot BEFORE transaction
   const snapshot = await prisma.employee.findUnique({
     where: { id },

@@ -53,7 +53,6 @@ export function buildMovimientoFormConfig(): FormConfig {
             label: 'Ubicación actual (origen)',
             type: 'readonly',
             gridCols: 1,
-            visibilityDependsOn: { field: 'assetId', notValues: ['', null, undefined] },
           },
           { name: 'fromLocationId', label: '', type: 'hidden' },
           { name: 'fromBodegaId', label: '', type: 'hidden' },
@@ -80,7 +79,7 @@ export function buildMovimientoFormConfig(): FormConfig {
               minChars: 1,
               cascade: {
                 cascadeAction: async (locationId) => {
-                  const r = await searchBodegasByLocationAction(locationId);
+                  const r = await searchBodegasByLocationAction('', locationId);
                   return {
                     toBodegaId: '',
                     _cascadeOptions_toBodegaId: r.ok
@@ -98,7 +97,7 @@ export function buildMovimientoFormConfig(): FormConfig {
             gridCols: 1,
             placeholder: 'Seleccionar bodega…',
             options: [],
-            visibilityDependsOn: { field: 'toLocationId', notValues: ['', null, undefined] },
+            alwaysVisible: true,
           },
         ],
       },
