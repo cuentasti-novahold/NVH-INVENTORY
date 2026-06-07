@@ -654,3 +654,23 @@ export async function searchBodegasByLocationAction(
 
   return ok(rows.map((r) => ({ code: r.id, value: `${r.name} — ${r.location.name}` })));
 }
+
+export async function searchLocationsByCityAction(
+  query: string,
+  cityId?: string,
+): Promise<ActionResult<{ code: string; value: string }[]>> {
+  const session = await auth();
+  if (!session?.user) return err('UNAUTHORIZED', 'No autenticado');
+
+  const rows = await prisma.location.findMany({
+    where: {
+      name: { contains: query },
+      ...(cityId ? { cityId } : {}),
+    },
+    select: { id: true, name: true },
+    take: 20,
+    orderBy: { name: 'asc' },
+  });
+
+  return ok(rows.map((r) => ({ code: r.id, value: r.name })));
+}

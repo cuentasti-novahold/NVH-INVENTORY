@@ -2,7 +2,7 @@ import { Tag, Cpu, Activity, DollarSign, MapPin, Link2, FileText } from 'lucide-
 import type { FormConfig, FieldVisibility } from '@/shared/presentation/types/form-config.types';
 import { getCategoryFieldConfigAction, searchAssetsAction } from '@/app/(dashboard)/assets/actions';
 import { searchCategoriesAction } from '@/app/(dashboard)/settings/categories/actions';
-import { searchLocationsAction, searchBodegasByLocationAction } from '@/app/(dashboard)/settings/locations/actions';
+import { searchCitiesAction, searchLocationsByCityAction, searchBodegasByLocationAction } from '@/app/(dashboard)/settings/locations/actions';
 import { searchCurrenciesAction } from '@/app/(dashboard)/settings/currencies/actions';
 import type { AssetRow, CreateAssetDTO, AssetStatus, StorageType } from '../dto/asset.dto';
 
@@ -267,6 +267,19 @@ export function buildAssetFormConfig(editing?: AssetRow | null): FormConfig {
         icon: MapPin,
         accent: 'bg-cyan-600',
         fields: [
+          {
+            name: 'cityId',
+            label: 'Ciudad',
+            type: 'autocomplete' as const,
+            gridCols: 2,
+            hidden: !!editing,
+            autocompleteConfig: {
+              searchAction: (q: string) => searchCitiesAction(q).then((r) => (r.ok ? r.data : [])),
+              returnMode: 'code' as const,
+              placeholder: 'Filtrar por ciudad…',
+              minChars: 1,
+            },
+          },
           editing
             ? {
                 name: 'locationId',
@@ -282,7 +295,8 @@ export function buildAssetFormConfig(editing?: AssetRow | null): FormConfig {
                 required: true,
                 gridCols: 2,
                 autocompleteConfig: {
-                  searchAction: (q) => searchLocationsAction(q).then((r) => (r.ok ? r.data : [])),
+                  searchAction: (q: string, cityId?: string) => searchLocationsByCityAction(q, cityId).then((r) => (r.ok ? r.data : [])),
+                  watchField: 'cityId',
                   returnMode: 'code' as const,
                   placeholder: 'Buscar sede…',
                   minChars: 1,
@@ -300,9 +314,10 @@ export function buildAssetFormConfig(editing?: AssetRow | null): FormConfig {
                 name: 'bodegaId',
                 label: 'Bodega',
                 type: 'autocomplete' as const,
+                required: true,
                 gridCols: 2,
                 autocompleteConfig: {
-                  searchAction: (q, locationId) => searchBodegasByLocationAction(q, locationId).then((r) => (r.ok ? r.data : [])),
+                  searchAction: (q: string, locationId?: string) => searchBodegasByLocationAction(q, locationId).then((r) => (r.ok ? r.data : [])),
                   watchField: 'locationId',
                   returnMode: 'code' as const,
                   placeholder: 'Buscar bodega…',
