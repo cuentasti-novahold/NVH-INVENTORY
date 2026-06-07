@@ -60,7 +60,7 @@ function StatusSelectField({ field, watch, setValue }: FieldContext) {
   const selected = opts.find((o) => o.value === current);
   return (
     <Select value={current} onValueChange={(v) => setValue(field.name, v)}>
-      <SelectTrigger id={field.name} className="h-9">
+      <SelectTrigger id={field.name} className="h-9 w-full">
         <div className="flex items-center gap-2">
           {selected?.color && <span className={cn('h-2 w-2 rounded-full shrink-0', selected.color)} />}
           <SelectValue placeholder={field.placeholder ?? `Seleccionar ${field.label}`} />
@@ -317,7 +317,7 @@ const FIELD_RENDERERS: Partial<Record<FormFieldConfig['type'], (ctx: FieldContex
       value={(watch(field.name) as string) ?? ''}
       onValueChange={(v) => setValue(field.name, v)}
     >
-      <SelectTrigger id={field.name} className="h-9">
+      <SelectTrigger id={field.name} className="h-9 w-full">
         <SelectValue placeholder={field.placeholder ?? `Seleccionar ${field.label}`} />
       </SelectTrigger>
       <SelectContent>
@@ -520,8 +520,8 @@ export function CrudFormDialog({
     // T-06: Mode B visibility
     if (dynamicVisibility[field.name] === 'hidden') return null;
 
-    // Cascade-driven select: hide when options list is empty
-    if (field.type === 'select' && field.name in cascadeOptions && cascadeOptions[field.name].length === 0) {
+    // Cascade-driven select: hide when options list is empty (skip if alwaysVisible)
+    if (!field.alwaysVisible && field.type === 'select' && field.name in cascadeOptions && cascadeOptions[field.name].length === 0) {
       return null;
     }
 

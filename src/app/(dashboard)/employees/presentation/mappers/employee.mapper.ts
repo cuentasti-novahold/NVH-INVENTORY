@@ -14,14 +14,14 @@ type PrismaEmployeeWithRelations = {
   department: { name: string } | null;
   city: { name: string } | null;
   location: { name: string } | null;
-  _count: { assignments: number };
+  _count: { assignments: number }; // only ACTIVE
 };
 
 export const employeeInclude = {
   department: { select: { name: true } },
   city: { select: { name: true } },
   location: { select: { name: true } },
-  _count: { select: { assignments: true } },
+  _count: { select: { assignments: { where: { status: 'ACTIVE' } } } },
 } as const;
 
 export function toEmployeeRow(e: PrismaEmployeeWithRelations): EmployeeRow {

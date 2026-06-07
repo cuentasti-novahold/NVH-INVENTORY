@@ -78,6 +78,7 @@ export interface FormFieldConfig {
   options?: { label: string; value: string; color?: string }[];
   pattern?: { regex: string; message: string };
   hidden?: boolean;
+  alwaysVisible?: boolean;
   gridCols?: 1 | 2 | 3 | 4;
   autocompleteConfig?: AutocompleteConfig;
   presetSelectorConfig?: PresetSelectorConfig;
