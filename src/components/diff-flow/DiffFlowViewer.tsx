@@ -27,8 +27,37 @@ export function formatDiffValue(v: unknown): string {
   return String(v);
 }
 
+const FIELD_LABELS: Record<string, string> = {
+  locationId: 'Ubicación',
+  locationName: 'Ubicación',
+  bodegaId: 'Bodega',
+  bodegaName: 'Bodega',
+  categoryId: 'Categoría',
+  assetCode: 'Código de activo',
+  generalStatus: 'Estado general',
+  functionalStatus: 'Estado funcional',
+  isActive: 'Activo',
+  purchaseDate: 'Fecha de compra',
+  purchasePrice: 'Precio (COP)',
+  purchasePriceBase: 'Precio base',
+  serialNumber: 'Número de serie',
+  assetTag: 'Tag de activo',
+  hostname: 'Hostname',
+  employeeId: 'Empleado',
+  assignedAt: 'Asignado',
+  returnedAt: 'Devuelto',
+  maintenanceType: 'Tipo de mantenimiento',
+  scheduledAt: 'Programado para',
+  completedAt: 'Completado',
+};
+
+const NAME_REPLACES_ID: Record<string, string> = {
+  locationName: 'locationId',
+  bodegaName: 'bodegaId',
+};
+
 function humanLabel(key: string): string {
-  return key
+  return FIELD_LABELS[key] ?? key
     .replace(/([A-Z])/g, ' $1')
     .replace(/^./, (s) => s.toUpperCase())
     .trim();
@@ -37,7 +66,14 @@ function humanLabel(key: string): string {
 export function computeDiff(before: unknown, after: unknown): FieldDiff[] {
   const b = toObj(before);
   const a = toObj(after);
-  const keys = Array.from(new Set([...Object.keys(b), ...Object.keys(a)]));
+  const allKeys = Array.from(new Set([...Object.keys(b), ...Object.keys(a)]));
+
+  const suppressedIds = new Set<string>();
+  for (const [nameKey, idKey] of Object.entries(NAME_REPLACES_ID)) {
+    if (allKeys.includes(nameKey)) suppressedIds.add(idKey);
+  }
+
+  const keys = allKeys.filter((k) => !suppressedIds.has(k));
   const diffs: FieldDiff[] = [];
 
   for (const key of keys) {

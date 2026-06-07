@@ -10,13 +10,13 @@ import { Button } from '@/components/ui/button';
 import { MainDataTable } from '@/components/tables/MainTable';
 import { TablePageToolbar } from '@/components/dashboard/TablePageToolbar';
 import { Show } from '@/components/show/Show.component';
-import { ExcelImportDialog } from '@/shared/ui/components/ExcelImportDialog';
+import { ExcelImportDialog } from '@/shared/excel-import/components/ExcelImportDialog';
 import { assetColumns } from './columns-assets';
 import { CrudFormDialog } from '@/shared/presentation/components/form-builder/CrudFormDialog';
 import { buildAssetFormConfig, buildAssetDefaultValues, buildAssetDTO } from '../forms/asset-form.config';
 import { useAssets } from '../hooks/use-assets';
-import { importAssetsAction, exportInventoryAction, exportDepreciationAction, exportExpiringAction } from '../../actions';
-import type { AssetRow, AssetImportRow } from '../dto/asset.dto';
+import { exportInventoryAction, exportDepreciationAction, exportExpiringAction } from '../../actions';
+import type { AssetRow } from '../dto/asset.dto';
 import type { PageInfo } from '@/shared/types/pagination';
 
 type IsActiveParam = 'active' | 'inactive' | 'all';
@@ -223,38 +223,12 @@ export function AssetsTablePage({
         }}
       />
 
-      <ExcelImportDialog<AssetImportRow>
+      <ExcelImportDialog
         open={uiState.importOpen}
-        onOpenChange={(open) => setUiState((s) => ({ ...s, importOpen: true, ...(!open && { importOpen: false }) }))}
+        onOpenChange={(open) => setUiState((s) => ({ ...s, importOpen: open }))}
+        moduleKey="assets"
         title="Importar activos"
-        description="Columnas requeridas: category. Opcionales: brand, model, serialNumber, hostname, processor, ram, storageCapacity, storageType, operatingSystem, purchasePrice, currencyCode, usefulLifeYears, purchaseDate, generalStatus, location, bodega, notes."
-        expectedColumns={['category']}
-        action={async (rows) => {
-          const r = await importAssetsAction(rows);
-          if (!r.ok) return { inserted: 0, skipped: rows.length, errors: [{ row: 0, message: r.message }] };
-          return r.data;
-        }}
-        parseRow={(raw) => ({
-          category: (raw.category as string | null) ?? null,
-          brand: (raw.brand as string | null) ?? null,
-          model: (raw.model as string | null) ?? null,
-          serialNumber: (raw.serialNumber as string | null) ?? null,
-          hostname: (raw.hostname as string | null) ?? null,
-          assetTag: (raw.assetTag as string | null) ?? null,
-          processor: (raw.processor as string | null) ?? null,
-          ram: (raw.ram as string | null) ?? null,
-          storageCapacity: (raw.storageCapacity as string | null) ?? null,
-          storageType: (raw.storageType as string | null) ?? null,
-          operatingSystem: (raw.operatingSystem as string | null) ?? null,
-          purchasePrice: (raw.purchasePrice as string | number | null) ?? null,
-          currencyCode: (raw.currencyCode as string | null) ?? null,
-          usefulLifeYears: (raw.usefulLifeYears as string | number | null) ?? null,
-          purchaseDate: (raw.purchaseDate as string | null) ?? null,
-          generalStatus: (raw.generalStatus as string | null) ?? null,
-          location: (raw.location as string | null) ?? null,
-          bodega: (raw.bodega as string | null) ?? null,
-          notes: (raw.notes as string | null) ?? null,
-        })}
+        onSuccess={() => router.refresh()}
       />
     </div>
   );

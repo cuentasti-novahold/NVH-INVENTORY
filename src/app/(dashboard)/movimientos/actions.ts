@@ -209,8 +209,16 @@ export async function createMovementAction(
         entity: 'Asset',
         entityId: dto.assetId,
         assetId: dto.assetId,
-        before: { locationId: dto.fromLocationId ?? null, bodegaId: dto.fromBodegaId ?? null },
-        after: { locationId: dto.toLocationId, bodegaId: dto.toBodegaId ?? null },
+        before: {
+          locationId: dto.fromLocationId ?? null,
+          locationName: movement.fromLocation?.name ?? null,
+          bodegaId: dto.fromBodegaId ?? null,
+        },
+        after: {
+          locationId: dto.toLocationId,
+          locationName: movement.toLocation.name,
+          bodegaId: dto.toBodegaId ?? null,
+        },
         ip,
         userAgent,
       });
