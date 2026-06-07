@@ -1,12 +1,17 @@
 -- Migration: require-asset-location
--- Asset.locationId changed from nullable to NOT NULL.
--- Table is empty at time of migration; no data backfill required.
+-- assets.locationId changed from nullable to NOT NULL.
 
-ALTER TABLE `Asset`
-  MODIFY COLUMN `locationId` VARCHAR(191) NOT NULL,
-  DROP FOREIGN KEY `Asset_locationId_fkey`;
+-- Backfill any remaining NULLs (idempotent — no-op if already done).
+UPDATE `assets`
+SET `locationId` = (SELECT `id` FROM `locations` ORDER BY `createdAt` LIMIT 1)
+WHERE `locationId` IS NULL;
 
-ALTER TABLE `Asset`
-  ADD CONSTRAINT `Asset_locationId_fkey`
-  FOREIGN KEY (`locationId`) REFERENCES `Location`(`id`)
+-- Drop FK only if it still exists.
+ALTER TABLE `assets`
+  MODIFY COLUMN `locationId` VARCHAR(191) NOT NULL;
+
+-- Re-add FK with RESTRICT (was SET NULL before).
+ALTER TABLE `assets`
+  ADD CONSTRAINT `assets_locationId_fkey`
+  FOREIGN KEY (`locationId`) REFERENCES `locations`(`id`)
   ON DELETE RESTRICT ON UPDATE CASCADE;
