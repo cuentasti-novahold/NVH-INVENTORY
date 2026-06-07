@@ -5,11 +5,22 @@ import { auth } from '@/auth';
 import { prisma } from '@/lib/prisma';
 import { hasPermission } from '@/lib/permissions';
 import { ok, err, type ActionResult } from '@/shared/types/action-result';
+import { locationHasBodegas } from '@/lib/location';
 import { createMovementSchema } from './presentation/schemas/movement.schema';
 import { toMovementRow, movementInclude } from './presentation/mappers/movement.mapper';
 import type { MovementRow, CreateMovementDTO } from './presentation/dto/movement.dto';
 
 type Role = Parameters<typeof hasPermission>[0];
+
+class ValidationAbort extends Error {
+  constructor(
+    public field: string,
+    public msg: string,
+  ) {
+    super(msg);
+    this.name = 'ValidationAbort';
+  }
+}
 
 function isP2025(e: unknown): boolean {
   return (e as { code?: string })?.code === 'P2025';
@@ -158,6 +169,14 @@ export async function createMovementAction(
 
   try {
     const created = await prisma.$transaction(async (tx) => {
+      // Conditional bodega guard: if destination has bodegas, toBodegaId is required
+      if (!dto.toBodegaId && (await locationHasBodegas(tx, dto.toLocationId))) {
+        throw new ValidationAbort(
+          'toBodegaId',
+          'La bodega de destino es obligatoria para esta sede',
+        );
+      }
+
       const movement = await tx.assetMovement.create({
         data: {
           assetId: dto.assetId,
@@ -199,7 +218,9 @@ export async function createMovementAction(
     revalidatePath('/assets');
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     return ok(toMovementRow(created as any));
-  } catch {
+  } catch (e) {
+    if (e instanceof ValidationAbort)
+      return err('VALIDATION', 'Datos inválidos', { [e.field]: e.msg });
     return err('UNKNOWN', 'Error al registrar traslado');
   }
 }

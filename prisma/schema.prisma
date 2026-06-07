@@ -257,8 +257,8 @@ model Asset {
   functionalStatus      AssetStatus            @default(GOOD)
   lastRevision          DateTime?
   notes                 String?                @db.Text
-  locationId            String?
-  location              Location?              @relation(fields: [locationId], references: [id])
+  locationId            String
+  location              Location               @relation(fields: [locationId], references: [id])
   bodegaId              String?
   bodega                Bodega?                @relation(fields: [bodegaId], references: [id])
   parentAssetId         String?

@@ -19,7 +19,7 @@ vi.mock('@/lib/prisma', () => ({
       update: vi.fn(),
     },
     location: { findFirst: vi.fn() },
-    bodega: { findFirst: vi.fn() },
+    bodega: { findFirst: vi.fn(), count: vi.fn() },
     currency: { findUnique: vi.fn() },
     exchangeRate: { findFirst: vi.fn() },
     importLog: { create: vi.fn() },
@@ -27,6 +27,7 @@ vi.mock('@/lib/prisma', () => ({
   },
 }));
 vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }));
+vi.mock('@/lib/location', () => ({ locationHasBodegas: vi.fn() }));
 // Capture the real hasPermission in a vi.hoisted block so it is available inside
 // the vi.mock factory (which is hoisted before all other code).
 const { realHasPermission } = vi.hoisted(() => {
@@ -62,12 +63,14 @@ import {
   exportExpiringAction,
   getAssetHistoryAction,
 } from '../actions';
+import { locationHasBodegas } from '@/lib/location';
 
 const mockAuth = auth as ReturnType<typeof vi.fn>;
 const mockHasPermission = hasPermission as ReturnType<typeof vi.fn>;
 const mockAsset = prisma.asset as unknown as Record<string, ReturnType<typeof vi.fn>>;
 const mockCategory = prisma.category as unknown as Record<string, ReturnType<typeof vi.fn>>;
 const mockImportLog = prisma.importLog as unknown as Record<string, ReturnType<typeof vi.fn>>;
+const mockLocationHasBodegas = locationHasBodegas as ReturnType<typeof vi.fn>;
 
 // Restore real hasPermission after each vi.clearAllMocks() call resets the implementation.
 // vi.clearAllMocks() in vitest v4 resets mockImplementation, so we restore it globally.
@@ -264,12 +267,14 @@ describe('createAssetAction', () => {
       };
       return fn(tx);
     });
+    mockLocationHasBodegas.mockResolvedValue(false);
     const r = await createAssetAction({
       categoryId: 'cat1',
       brand: 'Lenovo',
       model: 'ThinkPad X1',
       processor: 'i7',
       ram: '16GB',
+      locationId: 'loc-1',
     });
     expect(r.ok).toBe(true);
     if (!r.ok) return;
@@ -280,6 +285,7 @@ describe('createAssetAction', () => {
   it('returns CONFLICT on duplicate serialNumber', async () => {
     mockAuth.mockResolvedValue(adminSession);
     mockCategory.findUnique.mockResolvedValue(baseCategory);
+    mockLocationHasBodegas.mockResolvedValue(false);
     (prisma.$transaction as ReturnType<typeof vi.fn>).mockImplementation(async (fn: (tx: unknown) => Promise<unknown>) => {
       const tx = {
         category: { update: vi.fn().mockResolvedValue({ ...baseCategory, sequence: 1 }) },
@@ -289,7 +295,7 @@ describe('createAssetAction', () => {
       };
       return fn(tx);
     });
-    const r = await createAssetAction({ categoryId: 'cat1', serialNumber: 'SN-001', processor: 'i7', ram: '16GB' });
+    const r = await createAssetAction({ categoryId: 'cat1', serialNumber: 'SN-001', processor: 'i7', ram: '16GB', locationId: 'loc-1' });
     expect(r.ok).toBe(false);
     expect((r as { ok: false; code: string }).code).toBe('CONFLICT');
   });
@@ -452,15 +458,17 @@ describe('importAssetsAction', () => {
           update: vi.fn().mockResolvedValue({ ...baseCategory, sequence: 1 }),
         },
         asset: { create: vi.fn().mockResolvedValue(baseAsset) },
-        location: { findFirst: vi.fn().mockResolvedValue(null) },
-        bodega: { findFirst: vi.fn().mockResolvedValue(null) },
+        location: { findFirst: vi.fn().mockResolvedValue({ id: 'loc-1' }) },
+        bodega: { findFirst: vi.fn().mockResolvedValue(null), count: vi.fn().mockResolvedValue(0) },
         exchangeRate: { findFirst: vi.fn().mockResolvedValue(null) },
         currency: { findUnique: vi.fn().mockResolvedValue(null) },
       };
       return fn(tx);
     });
+    // Now location is required; provide a valid location name
+    // bodega count returns 0 so BODEGA_REQUIRED guard is not triggered
     const r = await importAssetsAction([
-      { category: 'Computador Portátil', brand: 'Lenovo', model: 'X1', serialNumber: null, hostname: null, assetTag: null, processor: null, ram: null, storageCapacity: null, storageType: null, operatingSystem: null, purchasePrice: null, currencyCode: null, usefulLifeYears: null, purchaseDate: null, generalStatus: null, location: null, bodega: null, notes: null },
+      { category: 'Computador Portátil', brand: 'Lenovo', model: 'X1', serialNumber: null, hostname: null, assetTag: null, processor: null, ram: null, storageCapacity: null, storageType: null, operatingSystem: null, purchasePrice: null, currencyCode: null, usefulLifeYears: null, purchaseDate: null, generalStatus: null, location: 'Sede Principal', bodega: null, notes: null },
     ]);
     expect(r.ok).toBe(true);
     if (!r.ok) return;
@@ -771,5 +779,77 @@ describe('FORBIDDEN guard — exportExpiringAction', () => {
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.code).toBe('FORBIDDEN');
     expect(mockAsset.findMany).not.toHaveBeenCalled();
+  });
+});
+
+// ─── T-01-B: createAssetAction rejects missing locationId ─────────────────────
+
+describe('createAssetAction — locationId required (T-01-B)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockHasPermission.mockImplementation(realHasPermission.fn);
+  });
+
+  it('returns VALIDATION with fieldErrors.locationId when locationId is absent', async () => {
+    mockAuth.mockResolvedValue(adminSession);
+    mockCategory.findUnique.mockResolvedValue(baseCategory);
+    const r = await createAssetAction({ categoryId: 'cat1' });
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.code).toBe('VALIDATION');
+    expect(r.fieldErrors?.locationId).toBeDefined();
+  });
+
+  it('returns VALIDATION with fieldErrors.locationId when locationId is empty string', async () => {
+    mockAuth.mockResolvedValue(adminSession);
+    mockCategory.findUnique.mockResolvedValue(baseCategory);
+    const r = await createAssetAction({ categoryId: 'cat1', locationId: '' });
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.code).toBe('VALIDATION');
+    expect(r.fieldErrors?.locationId).toBeDefined();
+  });
+});
+
+// ─── T-02-B/C: createAssetAction bodega guard ─────────────────────────────────
+
+describe('createAssetAction — conditional bodega guard (T-02-B / T-02-C)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockHasPermission.mockImplementation(realHasPermission.fn);
+  });
+
+  it('T-02-B: returns VALIDATION with fieldErrors.bodegaId when location has bodegas and bodegaId absent', async () => {
+    mockAuth.mockResolvedValue(adminSession);
+    // Use a category with no required custom fields so Yup passes
+    mockCategory.findUnique.mockResolvedValue({ ...baseCategory, fieldConfig: {} });
+    mockLocationHasBodegas.mockResolvedValue(true);
+    const r = await createAssetAction({ categoryId: 'cat1', locationId: 'loc-1' });
+    expect(r.ok).toBe(false);
+    if (r.ok) return;
+    expect(r.code).toBe('VALIDATION');
+    expect(r.fieldErrors?.bodegaId).toBeDefined();
+  });
+
+  it('T-02-C: succeeds (no bodega error) when location has zero bodegas', async () => {
+    mockAuth.mockResolvedValue(adminSession);
+    mockCategory.findUnique.mockResolvedValue({ ...baseCategory, fieldConfig: {} });
+    mockLocationHasBodegas.mockResolvedValue(false);
+    (prisma.$transaction as ReturnType<typeof vi.fn>).mockImplementation(async (fn: (tx: unknown) => Promise<unknown>) => {
+      const tx = {
+        category: {
+          update: vi.fn().mockResolvedValue({ ...baseCategory, sequence: 1 }),
+        },
+        asset: {
+          findUnique: vi.fn().mockResolvedValue(null),
+          create: vi.fn().mockResolvedValue(baseAsset),
+        },
+        exchangeRate: { findFirst: vi.fn().mockResolvedValue(null) },
+        currency: { findUnique: vi.fn().mockResolvedValue(null) },
+      };
+      return fn(tx);
+    });
+    const r = await createAssetAction({ categoryId: 'cat1', locationId: 'loc-no-bodegas' });
+    expect(r.ok).toBe(true);
   });
 });

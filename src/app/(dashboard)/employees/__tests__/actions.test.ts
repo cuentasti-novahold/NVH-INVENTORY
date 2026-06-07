@@ -348,7 +348,15 @@ describe('deleteEmployeeAction', () => {
 describe('deactivateEmployeeAction', () => {
   it('returns NOT_FOUND when Prisma throws P2025', async () => {
     mockAuth.mockResolvedValue(makeSession('ADMIN'));
-    mockEmployee.update.mockRejectedValue({ code: 'P2025' });
+    // Guard: employee has no active assignments but transaction throws P2025
+    mockEmployee.findUnique.mockResolvedValue({ _count: { assignments: 0 } });
+    mockTransaction.mockImplementation(async (fn: (tx: unknown) => unknown) => {
+      const tx = {
+        employee: { update: vi.fn().mockRejectedValue({ code: 'P2025' }) },
+        auditLog: { create: vi.fn().mockResolvedValue({}) },
+      };
+      return fn(tx);
+    });
     const result = await deactivateEmployeeAction('emp-1');
     expect(result.ok).toBe(false);
     if (!result.ok) expect(result.code).toBe('NOT_FOUND');
@@ -356,10 +364,19 @@ describe('deactivateEmployeeAction', () => {
 
   it('sets isActive=false and revalidates on success', async () => {
     mockAuth.mockResolvedValue(makeSession('ADMIN'));
-    mockEmployee.update.mockResolvedValue({});
+    // Guard: no active assignments
+    mockEmployee.findUnique.mockResolvedValue({ _count: { assignments: 0 } });
+    const txEmployeeUpdate = vi.fn().mockResolvedValue({ id: 'emp-1', isActive: false });
+    mockTransaction.mockImplementation(async (fn: (tx: unknown) => unknown) => {
+      const tx = {
+        employee: { update: txEmployeeUpdate },
+        auditLog: { create: vi.fn().mockResolvedValue({}) },
+      };
+      return fn(tx);
+    });
     const result = await deactivateEmployeeAction('emp-1');
     expect(result.ok).toBe(true);
-    expect(mockEmployee.update).toHaveBeenCalledWith({
+    expect(txEmployeeUpdate).toHaveBeenCalledWith({
       where: { id: 'emp-1' },
       data: { isActive: false },
     });
@@ -487,6 +504,66 @@ describe('FORBIDDEN guard — searchDepartmentsAction', () => {
     expect(r.ok).toBe(false);
     if (!r.ok) expect(r.code).toBe('FORBIDDEN');
     expect(mockDepartment.findMany).not.toHaveBeenCalled();
+  });
+});
+
+// ─── S-04-B/C/D: deactivateEmployeeAction ACTIVE guard ───────────────────────
+
+describe('deactivateEmployeeAction — ACTIVE assignments guard (S-04)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockHasPermission.mockImplementation(realHasPermission.fn);
+    mockImportLog.create.mockResolvedValue({});
+  });
+
+  it('S-04-B: returns HAS_CHILDREN when employee has ≥1 ACTIVE assignments', async () => {
+    mockAuth.mockResolvedValue(makeSession('ADMIN'));
+    mockEmployee.findUnique.mockResolvedValue({
+      _count: { assignments: 2 },
+    });
+
+    const result = await deactivateEmployeeAction('emp-1');
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.code).toBe('HAS_CHILDREN');
+    expect(result.message).toContain('2');
+    // Transaction must NOT have been called
+    expect(mockTransaction).not.toHaveBeenCalled();
+  });
+
+  it('S-04-C: succeeds when employee has only RETURNED assignments (0 ACTIVE)', async () => {
+    mockAuth.mockResolvedValue(makeSession('ADMIN'));
+    mockEmployee.findUnique.mockResolvedValue({
+      _count: { assignments: 0 },
+    });
+    mockTransaction.mockImplementation(async (fn: (tx: unknown) => unknown) => {
+      const tx = {
+        employee: { update: vi.fn().mockResolvedValue({ id: 'emp-1', isActive: false }) },
+        auditLog: { create: vi.fn().mockResolvedValue({}) },
+      };
+      return fn(tx);
+    });
+
+    const result = await deactivateEmployeeAction('emp-1');
+    expect(result.ok).toBe(true);
+  });
+
+  it('S-04-D: succeeds when employee has only TRANSFERRED assignments (0 ACTIVE)', async () => {
+    mockAuth.mockResolvedValue(makeSession('ADMIN'));
+    mockEmployee.findUnique.mockResolvedValue({
+      _count: { assignments: 0 },
+    });
+    mockTransaction.mockImplementation(async (fn: (tx: unknown) => unknown) => {
+      const tx = {
+        employee: { update: vi.fn().mockResolvedValue({ id: 'emp-1', isActive: false }) },
+        auditLog: { create: vi.fn().mockResolvedValue({}) },
+      };
+      return fn(tx);
+    });
+
+    const result = await deactivateEmployeeAction('emp-1');
+    expect(result.ok).toBe(true);
   });
 });
 

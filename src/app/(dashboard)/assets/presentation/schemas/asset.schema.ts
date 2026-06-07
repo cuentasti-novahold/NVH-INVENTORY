@@ -49,7 +49,7 @@ export function buildAssetCreateSchema(fieldConfig: FieldConfig = {}) {
       .mixed<(typeof ASSET_STATUSES)[number]>()
       .oneOf([...ASSET_STATUSES])
       .optional(),
-    locationId: yup.string().nullable().optional(),
+    locationId: yup.string().trim().required('La sede es obligatoria'),
     bodegaId: yup.string().nullable().optional(),
     parentAssetId: yup.string().nullable().optional(),
     notes: yup.string().max(2000).nullable().optional(),

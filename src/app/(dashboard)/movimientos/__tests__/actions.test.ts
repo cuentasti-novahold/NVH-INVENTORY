@@ -15,16 +15,19 @@ vi.mock('@/lib/prisma', () => ({
   },
 }));
 vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }));
+vi.mock('@/lib/location', () => ({ locationHasBodegas: vi.fn() }));
 
 import { auth } from '@/auth';
 import { prisma } from '@/lib/prisma';
 import { revalidatePath } from 'next/cache';
+import { locationHasBodegas } from '@/lib/location';
 
 import { toMovementRow } from '../presentation/mappers/movement.mapper';
 
 const mockAuth = auth as ReturnType<typeof vi.fn>;
 const mockMovement = prisma.assetMovement as unknown as Record<string, ReturnType<typeof vi.fn>>;
 const mockTransaction = prisma.$transaction as ReturnType<typeof vi.fn>;
+const mockLocationHasBodegas = locationHasBodegas as ReturnType<typeof vi.fn>;
 
 const adminSession = { user: { id: 'u1', role: 'ADMIN' } };
 const managerSession = { user: { id: 'u2', role: 'MANAGER' } };
@@ -388,5 +391,60 @@ describe('deleteMovementAction', () => {
     expect(result.ok).toBe(true);
     expect(mockMovement.delete).toHaveBeenCalledWith({ where: { id: 'mov1' } });
     expect(revalidatePath).toHaveBeenCalledWith('/movimientos');
+  });
+});
+
+// ─── T-03-B/C: createMovementAction toBodegaId guard ─────────────────────────
+
+describe('createMovementAction — conditional toBodegaId guard (T-03-B / T-03-C)', () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+  });
+
+  it('T-03-B: returns VALIDATION with fieldErrors.toBodegaId when toLocation has bodegas and toBodegaId absent', async () => {
+    mockAuth.mockResolvedValue(adminSession);
+    mockLocationHasBodegas.mockResolvedValue(true);
+    mockTransaction.mockImplementation(async (fn: (tx: unknown) => Promise<unknown>) => {
+      const tx = {
+        assetMovement: { create: vi.fn().mockResolvedValue(fakeDbMovement) },
+        asset: { update: vi.fn().mockResolvedValue({}) },
+        auditLog: { create: vi.fn().mockResolvedValue({}) },
+      };
+      return fn(tx);
+    });
+
+    const { createMovementAction } = await import('../actions');
+    const result = await createMovementAction({
+      assetId: 'ast1',
+      toLocationId: 'loc-with-bodegas',
+      movementType: 'RELOCATION',
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.code).toBe('VALIDATION');
+    expect(result.fieldErrors?.toBodegaId).toBeDefined();
+  });
+
+  it('T-03-C: succeeds when toLocation has zero bodegas and toBodegaId absent', async () => {
+    mockAuth.mockResolvedValue(adminSession);
+    mockLocationHasBodegas.mockResolvedValue(false);
+    mockTransaction.mockImplementation(async (fn: (tx: unknown) => Promise<unknown>) => {
+      const tx = {
+        assetMovement: { create: vi.fn().mockResolvedValue(fakeDbMovement) },
+        asset: { update: vi.fn().mockResolvedValue({}) },
+        auditLog: { create: vi.fn().mockResolvedValue({}) },
+      };
+      return fn(tx);
+    });
+
+    const { createMovementAction } = await import('../actions');
+    const result = await createMovementAction({
+      assetId: 'ast1',
+      toLocationId: 'loc-no-bodegas',
+      movementType: 'RELOCATION',
+    });
+
+    expect(result.ok).toBe(true);
   });
 });

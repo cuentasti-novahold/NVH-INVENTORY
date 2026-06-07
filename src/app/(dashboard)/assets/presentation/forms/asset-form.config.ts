@@ -92,7 +92,7 @@ export function buildAssetDTO(data: Record<string, unknown>): CreateAssetDTO {
     purchaseDate: (data.purchaseDate as string) || null,
     generalStatus: ((data.generalStatus as string) || 'GOOD') as AssetStatus,
     functionalStatus: ((data.functionalStatus as string) || 'GOOD') as AssetStatus,
-    locationId: (data.locationId as string) || null,
+    locationId: (data.locationId as string) || undefined,
     bodegaId: (data.bodegaId as string) || null,
     parentAssetId: (data.parentAssetId as string) || null,
     notes: (data.notes as string) || null,
@@ -279,6 +279,7 @@ export function buildAssetFormConfig(editing?: AssetRow | null): FormConfig {
                 name: 'locationId',
                 label: 'Sede',
                 type: 'autocomplete' as const,
+                required: true,
                 gridCols: 2,
                 autocompleteConfig: {
                   searchAction: (q) => searchLocationsAction(q).then((r) => (r.ok ? r.data : [])),
