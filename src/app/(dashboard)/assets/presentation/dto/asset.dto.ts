@@ -63,7 +63,7 @@ export interface CreateAssetDTO {
   purchaseDate?: string | null;
   generalStatus?: AssetStatus;
   functionalStatus?: AssetStatus;
-  locationId?: string | null;
+  locationId?: string;
   bodegaId?: string | null;
   parentAssetId?: string | null;
   notes?: string | null;

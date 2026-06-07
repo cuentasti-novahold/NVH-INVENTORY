@@ -10,6 +10,7 @@ import { ok, err, type ActionResult } from '@/shared/types/action-result';
 import { writeAudit, AuditActions, getRequestMeta } from '@/lib/audit';
 import type { ExcelImportResult, ExcelRowError } from '@/shared/ui/types/excel-import.types';
 import { calculateDepreciation } from '@/lib/depreciation';
+import { locationHasBodegas } from '@/lib/location';
 import { buildAssetCreateSchema, buildAssetUpdateSchema } from './presentation/schemas/asset.schema';
 import { toAssetRow, toAssetDetailRow, assetInclude, assetDetailInclude } from './presentation/mappers/asset.mapper';
 import type {
@@ -281,6 +282,12 @@ export async function createAssetAction(
     return err('VALIDATION', 'Datos inválidos', yupToFieldErrors(e));
   }
 
+  if (!dto.bodegaId && (await locationHasBodegas(prisma, dto.locationId!))) {
+    return err('VALIDATION', 'Datos inválidos', {
+      bodegaId: 'La bodega es obligatoria para esta sede',
+    });
+  }
+
   const { ip, userAgent } = await getRequestMeta();
 
   try {
@@ -327,7 +334,7 @@ export async function createAssetAction(
           generalStatus: (dto.generalStatus ?? 'GOOD') as 'GOOD' | 'REGULAR' | 'BAD' | 'DAMAGED' | 'RETIRED',
           functionalStatus: (dto.functionalStatus ?? 'GOOD') as 'GOOD' | 'REGULAR' | 'BAD' | 'DAMAGED' | 'RETIRED',
           notes: dto.notes ?? null,
-          locationId: dto.locationId ?? null,
+          locationId: dto.locationId!,
           bodegaId: dto.bodegaId ?? null,
           parentAssetId: dto.parentAssetId ?? null,
         },
@@ -588,6 +595,11 @@ export async function importAssetsAction(
         });
         const assetCode = formatAssetCode(updatedCat.prefix, updatedCat.sequence);
 
+        // Blank location guard: location is required for asset creation
+        if (!r.location?.trim()) {
+          throw new Error('LOCATION_NOT_FOUND:(vacío)');
+        }
+
         let locationId: string | null = null;
         if (r.location?.trim()) {
           const loc = await tx.location.findFirst({
@@ -596,6 +608,11 @@ export async function importAssetsAction(
           });
           if (!loc) throw new Error(`LOCATION_NOT_FOUND:${r.location}`);
           locationId = loc.id;
+        }
+
+        // Conditional bodega guard for importer: if location has bodegas, bodega column is required
+        if (!r.bodega?.trim() && locationId && (await locationHasBodegas(tx, locationId))) {
+          throw new Error('BODEGA_REQUIRED:(la sede requiere bodega)');
         }
 
         let bodegaId: string | null = null;
@@ -635,7 +652,7 @@ export async function importAssetsAction(
             generalStatus: parseStatus(r.generalStatus),
             functionalStatus: 'GOOD',
             notes: r.notes?.trim() || null,
-            locationId,
+            locationId: locationId!,
             bodegaId,
           },
         });
@@ -647,6 +664,8 @@ export async function importAssetsAction(
         errors.push({ row: rowNum, field: 'category', message: `Categoría no encontrada: ${msg.split(':')[1]}` });
       else if (msg.startsWith('LOCATION_NOT_FOUND:'))
         errors.push({ row: rowNum, field: 'location', message: `Sede no encontrada: ${msg.split(':')[1]}` });
+      else if (msg.startsWith('BODEGA_REQUIRED:'))
+        errors.push({ row: rowNum, field: 'bodega', message: 'La sede requiere una bodega. Especificá la bodega en la columna correspondiente.' });
       else if (msg.startsWith('BODEGA_NOT_FOUND:'))
         errors.push({ row: rowNum, field: 'bodega', message: `Bodega no encontrada: ${msg.split(':')[1]}` });
       else if (isP2002(e, 'serialNumber'))

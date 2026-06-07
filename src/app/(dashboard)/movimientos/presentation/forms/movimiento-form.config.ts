@@ -96,7 +96,7 @@ export function buildMovimientoFormConfig(): FormConfig {
             label: 'Bodega destino',
             type: 'select',
             gridCols: 1,
-            placeholder: 'Seleccionar bodega (opcional)',
+            placeholder: 'Seleccionar bodega…',
             options: [],
             visibilityDependsOn: { field: 'toLocationId', notValues: ['', null, undefined] },
           },

@@ -433,6 +433,18 @@ export async function deactivateEmployeeAction(id: string): Promise<ActionResult
   const g = await requireWrite();
   if (!g.ok) return g.error;
 
+  // ACTIVE-assignment guard runs BEFORE transaction (mirrors deleteEmployeeAction pattern)
+  const row = await prisma.employee.findUnique({
+    where: { id },
+    select: { _count: { select: { assignments: { where: { status: 'ACTIVE' } } } } },
+  });
+  if (!row) return err('NOT_FOUND', 'Empleado no encontrado');
+  if (row._count.assignments > 0)
+    return err(
+      'HAS_CHILDREN',
+      `No se puede desactivar: tiene ${row._count.assignments} asignaciones activas. Registrá la devolución de los activos primero.`,
+    );
+
   const { ip, userAgent } = await getRequestMeta();
 
   try {
