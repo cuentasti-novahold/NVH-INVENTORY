@@ -601,9 +601,12 @@ certs que están en las env vars del adapter (`DB_SSL_CA`, `DB_SSL_CERT`, `DB_SS
 **Solución**: usar un segundo usuario de MySQL sin `REQUIRE X509` exclusivamente para
 migraciones. La seguridad de este usuario descansa en la contraseña fuerte — no en mTLS.
 
-### 8.1 Crear el usuario de migraciones (una sola vez, permanente)
+### 8.1 Crear y eliminar el usuario de migraciones
 
-En EC2 vía `sudo mysql`:
+Este usuario existe **solo durante el deploy que aplica la migración**. Se crea antes del
+push, Vercel lo usa en el build, y se elimina después de confirmar que la migración pasó.
+
+**Crear (antes de cada push con cambio de schema)** — en EC2 vía `sudo mysql`:
 
 ```sql
 USE novahold;
@@ -618,9 +621,15 @@ ON novahold.* TO 'novahold_migrate'@'%';
 FLUSH PRIVILEGES;
 ```
 
-> Este usuario debe quedarse **permanente**. Cada deploy de Vercel lo necesita para correr
-> `prisma migrate deploy`. Si lo eliminás, el próximo deploy que tenga una migración pendiente
-> fallará con P1000 (authentication failed).
+**Eliminar (después de confirmar que el deploy pasó)**:
+
+```sql
+DROP USER 'novahold_migrate'@'%';
+FLUSH PRIVILEGES;
+```
+
+> Si el deploy falla con P3009 u otro error de migración, **no eliminar el usuario todavía**.
+> Resolver el problema (ver Parte 10), redeploy, y recién entonces hacer el `DROP USER`.
 
 ### 8.2 Agregar la variable de entorno en Vercel
 
@@ -647,20 +656,52 @@ Con esto:
 
 ### 8.4 Qué hacer en cada nueva migración
 
-Cuando hay un cambio de schema en desarrollo:
+```
+1. Generar migración local
+2. Crear usuario novahold_migrate en EC2
+3. Push → Vercel aplica la migración en el build
+4. Verificar que pasó
+5. Eliminar el usuario
+```
+
+**Paso a paso:**
 
 ```bash
 # 1. Generar la migración local
 npx prisma migrate dev --name <descripcion-del-cambio>
+```
 
-# 2. Commitear y pushear — Vercel hace el resto automáticamente
+```sql
+-- 2. Crear el usuario en EC2 (sudo mysql)
+CREATE USER 'novahold_migrate'@'%'
+  IDENTIFIED BY '<contraseña-distinta-32chars>';
+GRANT SELECT, INSERT, UPDATE, DELETE,
+      CREATE, ALTER, DROP, INDEX, REFERENCES
+ON novahold.* TO 'novahold_migrate'@'%';
+FLUSH PRIVILEGES;
+```
+
+```bash
+# 3. Pushear — Vercel corre prisma migrate deploy en el build
 git add prisma/
 git commit -m "feat: <descripcion>"
 git push
 ```
 
-Vercel aplica la migración en producción durante el build. No hace falta intervención manual
-si el build command y el usuario de migraciones están configurados correctamente.
+```sql
+-- 4. Verificar que la migración se aplicó (sudo mysql)
+SELECT migration_name, finished_at, applied_steps_count
+FROM _prisma_migrations
+ORDER BY started_at DESC
+LIMIT 3;
+-- finished_at con fecha y applied_steps_count = 1 → OK
+
+-- 5. Eliminar el usuario
+DROP USER 'novahold_migrate'@'%';
+FLUSH PRIVILEGES;
+```
+
+> Si el build falló → NO hacer el `DROP USER`. Ver Parte 10 para resolver y redeploy.
 
 ### 8.5 Verificar que la migración se aplicó en producción
 
