@@ -44,6 +44,7 @@ const FIELD_LABELS: Record<string, string> = {
   assetTag: 'Tag de activo',
   hostname: 'Hostname',
   employeeId: 'Empleado',
+  employeeName: 'Empleado',
   assignedAt: 'Asignado',
   returnedAt: 'Devuelto',
   maintenanceType: 'Tipo de mantenimiento',
@@ -54,6 +55,8 @@ const FIELD_LABELS: Record<string, string> = {
 const NAME_REPLACES_ID: Record<string, string> = {
   locationName: 'locationId',
   bodegaName: 'bodegaId',
+  assetCode: 'assetId',
+  employeeName: 'employeeId',
 };
 
 function humanLabel(key: string): string {

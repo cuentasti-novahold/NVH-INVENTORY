@@ -411,10 +411,12 @@ export async function createAssignmentAction(
       entityId: created.id,
       before: null,
       after: {
-        assetId: created.assetId,
-        employeeId: created.employeeId,
-        assignedAt: created.assignedAt,
         status: created.status,
+        assetId: created.assetId,
+        assetCode: created.asset.assetCode,
+        employeeId: created.employeeId,
+        employeeName: created.employee.fullName,
+        assignedAt: created.assignedAt,
       },
       ip,
       userAgent,
@@ -507,12 +509,13 @@ export async function transferAssignmentAction(
 
   try {
     const newAssignment = await prisma.$transaction(async (tx) => {
-      // Fetch old employeeId BEFORE closing source (for audit before snapshot)
+      // Fetch old employee BEFORE closing source (for audit before snapshot)
       const sourceSnapshot = await tx.assignment.findUnique({
         where: { id },
-        select: { employeeId: true, status: true },
+        select: { employeeId: true, status: true, employee: { select: { fullName: true } } },
       });
       const oldEmployeeId = sourceSnapshot?.employeeId ?? null;
+      const oldEmployeeName = sourceSnapshot?.employee?.fullName ?? null;
 
       // CAS: only update if status is ACTIVE
       const source = await tx.assignment.update({
@@ -543,8 +546,8 @@ export async function transferAssignmentAction(
         action: AuditActions.TRANSFERRED,
         entity: 'Assignment',
         entityId: id,
-        before: { employeeId: oldEmployeeId, status: 'ACTIVE' },
-        after: { employeeId: dto.newEmployeeId, status: 'ACTIVE', newAssignmentId: created.id },
+        before: { employeeId: oldEmployeeId, employeeName: oldEmployeeName, status: 'ACTIVE' },
+        after: { employeeId: dto.newEmployeeId, employeeName: created.employee.fullName, status: 'ACTIVE' },
         ip,
         userAgent,
       });
