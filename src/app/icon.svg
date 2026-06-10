@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32">
+  <!-- Navy background -->
+  <rect width="32" height="32" rx="6" fill="#00365f"/>
+  <!-- N (white) -->
+  <path d="M2 8h3l7 12V8h3v16h-3L5 12v12H2V8z" fill="white"/>
+  <!-- H (teal) -->
+  <path d="M17 8h3v5h5V8h3v16h-3v-5h-5v5h-3V8z" fill="#17af95"/>
+</svg>
