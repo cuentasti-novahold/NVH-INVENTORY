@@ -118,7 +118,7 @@ export function DashboardSidebar({ user }: DashboardSidebarProps) {
         </button>
 
         {/* Nav */}
-        <nav className="flex-1 overflow-y-auto overflow-x-hidden px-2" aria-label="Navegación principal">
+        <nav className="flex-1 overflow-y-auto overflow-x-hidden px-2 sidebar-nav-scroll" aria-label="Navegación principal">
           {getFilteredNavSections(user.role).map((section) => (
             <div key={section.label} className="pb-2">
               {isCollapsed ? (
