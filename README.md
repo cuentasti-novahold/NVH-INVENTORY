@@ -415,3 +415,185 @@ El componente `ExcelExportButton` decodifica el base64 y dispara la descarga nat
 ## Documentación adicional
 
 - [`MODULES.md`](./MODULES.md) — Descripción detallada de cada módulo y sus flujos
+
+---
+
+## Producción — EC2 MySQL
+
+La app corre en Vercel Hobby conectada a MySQL 8 en una instancia EC2 (Amazon Linux 2023).
+La seguridad de la conexión descansa en **mTLS**: el usuario `novahold_app` tiene `REQUIRE X509`,
+lo que significa que MySQL rechaza cualquier conexión que no presente un certificado de cliente
+firmado por la CA privada del proyecto — independientemente de que la contraseña sea correcta.
+
+### Renovación de certificados
+
+Los certificados generados en la configuración inicial vencen en **3650 días (~10 años)**.
+Cuando se acerque la fecha, generar un nuevo certificado de cliente en la EC2:
+
+```bash
+cd ~/certs
+
+# Generar nuevo cert de cliente (incrementar serial: 03, 04, etc.)
+openssl req -newkey rsa:2048 -nodes -keyout client-key.pem -out client-req.pem \
+  -subj "/CN=novahold-app-client"
+
+openssl x509 -req -days 3650 \
+  -CA ca-cert.pem -CAkey ca-key.pem \
+  -set_serial 03 \
+  -in client-req.pem -out client-cert.pem
+```
+
+Luego actualizar en Vercel:
+- `DB_SSL_CERT` → contenido del nuevo `client-cert.pem`
+- `DB_SSL_KEY` → contenido del nuevo `client-key.pem`
+
+Hacer redeploy. El `ca-cert.pem` y los certs del servidor **no cambian**.
+
+> `ca-key.pem` en `~/certs/` es la llave privada de la CA. Si se pierde, no se pueden
+> generar nuevos certificados de cliente. Guardarlo en un lugar seguro fuera del servidor.
+
+---
+
+### Backups
+
+Los backups se generan directamente en la EC2 con `mysqldump` y se comprimen con gzip.
+
+#### Crear usuario de backup (una sola vez)
+
+Conectarse a MySQL (`sudo mysql -u root -p`) y ejecutar:
+
+```sql
+CREATE USER 'novahold_backup'@'127.0.0.1'
+  IDENTIFIED BY '<contraseña-segura>';
+
+GRANT SELECT, LOCK TABLES, SHOW VIEW, EVENT, TRIGGER
+ON novahold.* TO 'novahold_backup'@'127.0.0.1';
+
+FLUSH PRIVILEGES;
+```
+
+Este usuario solo acepta conexiones desde localhost — nunca desde internet.
+
+#### Crear el script de backup
+
+```bash
+sudo mkdir -p /opt/backups
+sudo nano /opt/backups/backup-novahold.sh
+```
+
+Contenido:
+
+```bash
+#!/bin/bash
+set -euo pipefail
+
+BACKUP_DIR="/opt/backups"
+DATE=$(date +%Y-%m-%d)
+FILENAME="novahold-${DATE}.sql.gz"
+
+mysqldump \
+  -h 127.0.0.1 \
+  -u novahold_backup \
+  -p'<contraseña-segura>' \
+  --single-transaction \
+  --routines \
+  --triggers \
+  --set-gtid-purged=OFF \
+  novahold | gzip > "${BACKUP_DIR}/${FILENAME}"
+
+# Eliminar backups con más de 90 días
+find "${BACKUP_DIR}" -name "novahold-*.sql.gz" -mtime +90 -delete
+
+echo "Backup completado: ${BACKUP_DIR}/${FILENAME}"
+```
+
+```bash
+sudo chmod +x /opt/backups/backup-novahold.sh
+```
+
+#### Probar el script
+
+```bash
+sudo /opt/backups/backup-novahold.sh
+ls -lh /opt/backups/
+# debe aparecer: novahold-YYYY-MM-DD.sql.gz
+```
+
+#### Programar cron mensual (día 1 de cada mes a las 2 AM)
+
+En Amazon Linux, instalar y habilitar cronie primero:
+
+```bash
+sudo dnf install -y cronie
+sudo systemctl enable crond
+sudo systemctl start crond
+```
+
+Abrir el editor de cron:
+
+```bash
+sudo crontab -e
+```
+
+Agregar esta línea (formato vi: `i` para insertar, `Esc` + `:wq` + `Enter` para guardar):
+
+```
+0 2 1 * * /opt/backups/backup-novahold.sh >> /var/log/novahold-backup.log 2>&1
+```
+
+**Qué hace el cron job**: el día 1 de cada mes a las 2 AM UTC, la EC2 ejecuta el script
+automáticamente sin intervención manual. Genera el archivo comprimido con la fecha en el
+nombre, borra los backups con más de 90 días y registra el resultado en el log.
+
+**Formato cron** — los 5 campos significan:
+
+```
+0 2 1 * *
+│ │ │ │ └── día de la semana (0-7, * = todos)
+│ │ │ └──── mes (1-12, * = todos)
+│ │ └────── día del mes (1-31)
+│ └──────── hora (0-23)
+└────────── minuto (0-59)
+```
+
+Verificar que quedó registrado:
+
+```bash
+sudo crontab -l
+```
+
+Ver el log después de la primera ejecución:
+
+```bash
+cat /var/log/novahold-backup.log
+```
+
+#### Descargar el backup a tu máquina
+
+Desde tu terminal local (Mac/Linux):
+
+```bash
+# Listar backups disponibles en la EC2
+ssh -i <tu-key.pem> ec2-user@<ELASTIC_IP> "ls -lh /opt/backups/"
+
+# Descargar el más reciente al escritorio
+LAST=$(ssh -i <tu-key.pem> ec2-user@<ELASTIC_IP> \
+  "ls -t /opt/backups/novahold-*.sql.gz | head -1")
+scp -i <tu-key.pem> ec2-user@<ELASTIC_IP>:"${LAST}" ~/Desktop/
+```
+
+Desde Windows (PowerShell):
+
+```powershell
+scp -i C:\Users\TuUsuario\.ssh\tu-key.pem `
+  ec2-user@<ELASTIC_IP>:/opt/backups/novahold-YYYY-MM-DD.sql.gz `
+  C:\Users\TuUsuario\Desktop\
+```
+
+#### Restaurar un backup
+
+```bash
+# En la EC2
+zcat /opt/backups/novahold-YYYY-MM-DD.sql.gz | \
+  mysql -h 127.0.0.1 -u novahold_backup -p novahold
+```
