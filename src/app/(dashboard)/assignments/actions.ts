@@ -17,6 +17,7 @@ import {
   toEmployeeAssignmentRow,
   assignmentInclude,
 } from './presentation/mappers/assignment.mapper';
+import { createMovementInTx } from '@/lib/inventory/movement.helpers';
 import type { PrismaEmployeeWithAssignmentStats } from './presentation/mappers/assignment.mapper';
 import type {
   AssignmentRow,
@@ -393,15 +394,36 @@ export async function createAssignmentAction(
     });
     if (existing) throw Object.assign(new Error('CONFLICT'), { isConflict: true });
 
+    // Snapshot asset location + bodega before any mutation (REQ-S-01)
+    const asset = await tx.asset.findUnique({
+      where: { id: dto.assetId },
+      select: { locationId: true, bodegaId: true },
+    });
+    if (!asset) throw Object.assign(new Error('NOT_FOUND'), { isNotFound: true });
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const createData: any = {
+      assetId: dto.assetId,
+      employeeId: dto.employeeId,
+      notes: dto.notes ?? null,
+      deliveredById: g.userId,
+      status: 'ACTIVE',
+      previousBodegaId: asset.bodegaId, // REQ-S-02: snapshot prior bodega (field added by migration)
+    };
     const created = await tx.assignment.create({
-      data: {
-        assetId: dto.assetId,
-        employeeId: dto.employeeId,
-        notes: dto.notes ?? null,
-        deliveredById: g.userId,
-        status: 'ACTIVE',
-      },
+      data: createData,
       include: assignmentInclude,
+    });
+
+    // REQ-S-04: emit ASSIGNMENT_DELIVERY movement (helper also sets Asset.bodegaId = null)
+    await createMovementInTx(tx, {
+      assetId: dto.assetId,
+      fromLocationId: asset.locationId,
+      fromBodegaId: asset.bodegaId,
+      toLocationId: asset.locationId, // location unchanged on delivery
+      toBodegaId: null, // REQ-S-03: clear bodega
+      movementType: 'ASSIGNMENT_DELIVERY',
+      movedById: g.userId,
     });
 
     await writeAudit(tx, {
@@ -417,6 +439,7 @@ export async function createAssignmentAction(
         employeeId: created.employeeId,
         employeeName: created.employee.fullName,
         assignedAt: created.assignedAt,
+        previousBodegaId: asset.bodegaId,
       },
       ip,
       userAgent,
@@ -433,6 +456,8 @@ export async function createAssignmentAction(
   }
 
   revalidatePath('/assignments');
+  revalidatePath('/assets');
+  revalidatePath('/movimientos');
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   return ok(toAssignmentRow(result as any));
 }
@@ -467,6 +492,29 @@ export async function returnAssignmentAction(
         include: assignmentInclude,
       });
 
+      // REQ-S-05: restore bodega if previousBodegaId is set; null-safe no-op otherwise
+      const previousBodegaId = (result as typeof result & { previousBodegaId?: string | null }).previousBodegaId ?? null;
+
+      if (previousBodegaId !== null) {
+        // Load asset locationId for movement FK (location unchanged on return)
+        const asset = await tx.asset.findUnique({
+          where: { id: result.assetId },
+          select: { locationId: true },
+        });
+        if (!asset) throw new Error('Asset not found during return');
+
+        // REQ-S-06: emit ASSIGNMENT_RETURN; helper restores Asset.bodegaId = previousBodegaId
+        await createMovementInTx(tx, {
+          assetId: result.assetId,
+          fromBodegaId: null,
+          toLocationId: asset.locationId,
+          toBodegaId: previousBodegaId,
+          movementType: 'ASSIGNMENT_RETURN',
+          movedById: g.userId,
+        });
+      }
+      // If previousBodegaId === null: skip — Asset.bodegaId stays null, no movement (REQ-S-05 null-safe)
+
       await writeAudit(tx, {
         userId: g.userId,
         action: AuditActions.RETURNED,
@@ -481,6 +529,8 @@ export async function returnAssignmentAction(
       return result;
     });
     revalidatePath('/assignments');
+    revalidatePath('/assets');
+    revalidatePath('/movimientos');
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     return ok(toAssignmentRow(updated as any));
   } catch (e) {

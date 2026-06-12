@@ -5,6 +5,8 @@ type PrismaAssetWithRelations = {
   assetCode: string;
   assetTag: string | null;
   hostname: string | null;
+  companyId: string;
+  company: { id: string; code: string; name: string };
   categoryId: string;
   brand: string | null;
   model: string | null;
@@ -43,6 +45,7 @@ type PrismaAssetWithRelations = {
 };
 
 export const assetDetailInclude = {
+  company: { select: { id: true, code: true, name: true } },
   category: { select: { name: true, prefix: true, fieldConfig: true } },
   location: { select: { name: true } },
   bodega: { select: { name: true } },
@@ -57,6 +60,7 @@ export const assetDetailInclude = {
 } as const;
 
 export const assetInclude = {
+  company: { select: { id: true, code: true, name: true } },
   category: { select: { name: true, prefix: true, fieldConfig: true } },
   location: { select: { name: true } },
   bodega: { select: { name: true } },
@@ -92,6 +96,9 @@ export function toAssetRow(a: PrismaAssetWithRelations): AssetRow {
     assetCode: a.assetCode,
     assetTag: a.assetTag,
     hostname: a.hostname,
+    companyId: a.companyId,
+    companyCode: a.company.code,
+    companyName: a.company.name,
     categoryId: a.categoryId,
     categoryName: a.category.name,
     categoryPrefix: a.category.prefix,

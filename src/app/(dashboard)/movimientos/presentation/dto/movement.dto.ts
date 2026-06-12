@@ -1,4 +1,4 @@
-export type MovementType = 'RELOCATION' | 'LOAN' | 'REPAIR' | 'RETURN_FROM_REPAIR' | 'AUDIT';
+export type MovementType = 'RELOCATION' | 'LOAN' | 'REPAIR' | 'RETURN_FROM_REPAIR' | 'AUDIT' | 'ASSIGNMENT_DELIVERY' | 'ASSIGNMENT_RETURN';
 
 export interface MovementRow {
   id: string;

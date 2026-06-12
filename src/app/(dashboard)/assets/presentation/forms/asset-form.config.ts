@@ -4,6 +4,7 @@ import { getCategoryFieldConfigAction, searchAssetsAction } from '@/app/(dashboa
 import { searchCategoriesAction } from '@/app/(dashboard)/settings/categories/actions';
 import { searchCitiesAction, searchLocationsByCityAction, searchBodegasByLocationAction } from '@/app/(dashboard)/settings/locations/actions';
 import { searchCurrenciesAction } from '@/app/(dashboard)/settings/currencies/actions';
+import { searchCompaniesAction } from '@/app/(dashboard)/settings/companies/actions';
 import type { AssetRow, CreateAssetDTO, AssetStatus, StorageType } from '../dto/asset.dto';
 
 /* ─── Mode B server action — called once per unique categoryId ──── */
@@ -32,7 +33,7 @@ const SPEC_VISIBILITY = { field: 'categoryId', serverAction: categoryFieldsServe
 export function buildAssetDefaultValues(editing?: AssetRow | null): Record<string, unknown> {
   if (!editing) {
     return {
-      categoryId: '', brand: '', model: '', serialNumber: '', assetTag: '', hostname: '',
+      companyId: '', categoryId: '', brand: '', model: '', serialNumber: '', assetTag: '', hostname: '',
       processor: '', ram: '', storageCapacity: '', storageType: '',
       operatingSystem: '', phoneNumber: '', imei: '',
       purchasePrice: '', currencyCode: 'COP', salvageValue: '', usefulLifeYears: '',
@@ -41,6 +42,7 @@ export function buildAssetDefaultValues(editing?: AssetRow | null): Record<strin
     };
   }
   return {
+    companyId: editing.companyId,
     categoryId: editing.categoryId,
     brand: editing.brand ?? '',
     model: editing.model ?? '',
@@ -72,6 +74,7 @@ export function buildAssetDefaultValues(editing?: AssetRow | null): Record<strin
 
 export function buildAssetDTO(data: Record<string, unknown>): CreateAssetDTO {
   return {
+    companyId: data.companyId as string,
     categoryId: data.categoryId as string,
     brand: (data.brand as string) || null,
     model: (data.model as string) || null,
@@ -110,6 +113,27 @@ export function buildAssetFormConfig(editing?: AssetRow | null): FormConfig {
         icon: Tag,
         accent: 'bg-blue-500',
         fields: [
+          editing
+            ? {
+                name: 'companyId',
+                label: 'Empresa',
+                type: 'readonly' as const,
+                gridCols: 1,
+                format: () => editing.companyCode,
+              }
+            : {
+                name: 'companyId',
+                label: 'Empresa',
+                type: 'autocomplete' as const,
+                required: true,
+                gridCols: 1,
+                autocompleteConfig: {
+                  searchAction: (q) => searchCompaniesAction(q).then((r) => (r.ok ? r.data : [])),
+                  returnMode: 'code' as const,
+                  placeholder: 'Buscar empresa…',
+                  minChars: 0,
+                },
+              },
           {
             name: 'categoryId',
             label: 'Categoría',

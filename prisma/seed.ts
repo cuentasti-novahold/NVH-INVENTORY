@@ -115,14 +115,21 @@ async function main() {
     cats[def.prefix] = c;
   }
 
-  // ── 8. Users ────────────────────────────────────────────────────────────────
+  // ── 8. Companies ────────────────────────────────────────────────────────────
+  const nvh = await prisma.company.upsert({
+    where: { id: 'clnvhcompany000000000001' },
+    update: {},
+    create: { id: 'clnvhcompany000000000001', code: 'NVH', name: 'Novahold', isActive: true },
+  });
+
+  // ── 10. Users ───────────────────────────────────────────────────────────────
   const adminUser = await prisma.user.upsert({ where: { email: 'admin@novahold.com' }, update: {}, create: { id: 'user-admin', name: 'Administrador Principal', email: 'admin@novahold.com', role: 'SUPER_ADMIN' } });
   const adminUser2 = await prisma.user.upsert({ where: { email: 'it.admin@novahold.com' }, update: {}, create: { id: 'user-it-admin', name: 'Carlos Velasco', email: 'it.admin@novahold.com', role: 'ADMIN' } });
   const managerUser = await prisma.user.upsert({ where: { email: 'gerente@novahold.com' }, update: {}, create: { id: 'user-manager', name: 'Laura Jiménez', email: 'gerente@novahold.com', role: 'MANAGER' } });
   await prisma.user.upsert({ where: { email: 'tecnico@novahold.com' }, update: {}, create: { id: 'user-tech', name: 'Andrés Morales', email: 'tecnico@novahold.com', role: 'TECHNICIAN' } });
   await prisma.user.upsert({ where: { email: 'viewer@novahold.com' }, update: {}, create: { id: 'user-viewer', name: 'Visitante', email: 'viewer@novahold.com', role: 'VIEWER' } });
 
-  // ── 9. Employees ────────────────────────────────────────────────────────────
+  // ── 11. Employees ───────────────────────────────────────────────────────────
   const employeeData = [
     { id: 'emp-01', fullName: 'Ana María Torres',      email: 'a.torres@novahold.com',      position: 'Gerente General',         dept: 'Gerencia',          city: bogota,        loc: locBogota },
     { id: 'emp-02', fullName: 'Juan Pablo Rincón',     email: 'jp.rincon@novahold.com',     position: 'Director de TI',          dept: 'Tecnología',        city: bogota,        loc: locBogota },
@@ -165,7 +172,7 @@ async function main() {
     employees[e.id] = emp;
   }
 
-  // ── 10. Assets ──────────────────────────────────────────────────────────────
+  // ── 12. Assets ──────────────────────────────────────────────────────────────
   // Helper: build asset code
   function assetCode(prefix: string, seq: number) {
     return `NVH-${prefix}-${pad(seq)}`;
@@ -230,6 +237,7 @@ async function main() {
       create: {
         id: a.id,
         assetCode: assetCode(a.prefix, a.seq),
+        companyId: nvh.id,
         categoryId: cats[a.prefix].id,
         brand: 'brand' in a ? (a as { brand?: string }).brand ?? null : null,
         model: 'model' in a ? (a as { model?: string }).model ?? null : null,
@@ -255,7 +263,7 @@ async function main() {
     assets[a.id] = ast;
   }
 
-  // ── 11. Assignments ─────────────────────────────────────────────────────────
+  // ── 13. Assignments ─────────────────────────────────────────────────────────
   const assignmentDefs = [
     // ACTIVE — portátiles asignados a empleados
     { id: 'asgn-01', assetId: 'ast-pc-01', empId: 'emp-02', daysBack: 90,  status: 'ACTIVE',    deliveredBy: adminUser2.id },

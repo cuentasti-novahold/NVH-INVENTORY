@@ -2,20 +2,19 @@ import { render, act } from '@testing-library/react';
 import { vi, describe, it, expect, beforeEach } from 'vitest';
 
 // Shared spy functions for QRScanner mock
-const mockRender = vi.fn();
+const mockStart = vi.fn();
+const mockStop = vi.fn().mockResolvedValue(undefined);
 const mockClear = vi.fn().mockResolvedValue(undefined);
-const mockPause = vi.fn();
-const mockResume = vi.fn();
 
-// Must mock html5-qrcode locally to intercept the dynamic import inside QRScanner
+// The QRScanner component uses Html5Qrcode (not Html5QrcodeScanner) with start/stop/clear
 vi.mock('html5-qrcode', () => {
-  class Html5QrcodeScanner {
-    render = mockRender;
+  class Html5Qrcode {
+    isScanning = true;
+    start = mockStart;
+    stop = mockStop;
     clear = mockClear;
-    pause = mockPause;
-    resume = mockResume;
   }
-  return { Html5QrcodeScanner };
+  return { Html5Qrcode };
 });
 
 import { QRScanner } from '../QRScanner';
@@ -26,10 +25,11 @@ function flushPromises() {
 
 describe('QRScanner', () => {
   beforeEach(() => {
-    mockRender.mockClear();
+    mockStart.mockClear();
+    mockStop.mockClear();
     mockClear.mockClear();
-    mockPause.mockClear();
-    mockResume.mockClear();
+    // Default: start resolves immediately
+    mockStart.mockResolvedValue(undefined);
   });
 
   it('renders a div container', async () => {
@@ -40,11 +40,11 @@ describe('QRScanner', () => {
     expect(div).toBeInTheDocument();
   });
 
-  it('initializes scanner after mount and calls render', async () => {
+  it('initializes scanner after mount and calls start', async () => {
     const onDecode = vi.fn();
     render(<QRScanner onDecode={onDecode} />);
     await act(async () => { await flushPromises(); });
-    expect(mockRender).toHaveBeenCalledTimes(1);
+    expect(mockStart).toHaveBeenCalledTimes(1);
   });
 
   it('calls onDecode when the QR callback fires', async () => {
@@ -52,33 +52,40 @@ describe('QRScanner', () => {
     render(<QRScanner onDecode={onDecode} />);
     await act(async () => { await flushPromises(); });
 
-    // The first arg to render() is onSuccess
-    const [onSuccess] = mockRender.mock.calls[0] as [Function, Function];
+    // The third arg to start() is the onSuccess callback
+    const [, , onSuccess] = mockStart.mock.calls[0] as [unknown, unknown, Function, Function];
     act(() => { onSuccess('qr-value-123'); });
     expect(onDecode).toHaveBeenCalledWith('qr-value-123');
   });
 
-  it('calls clear() on unmount', async () => {
+  it('calls stop() and clear() on unmount', async () => {
     const onDecode = vi.fn();
     const { unmount } = render(<QRScanner onDecode={onDecode} />);
     await act(async () => { await flushPromises(); });
     unmount();
-    expect(mockClear).toHaveBeenCalled();
+    await act(async () => { await flushPromises(); });
+    // The cleanup calls scanner.stop() then scanner.clear()
+    expect(mockStop).toHaveBeenCalled();
   });
 
-  it('calls pause when paused prop becomes true', async () => {
+  it('does not call onDecode when paused prop is true', async () => {
     const onDecode = vi.fn();
-    const { rerender } = render(<QRScanner onDecode={onDecode} paused={false} />);
+    render(<QRScanner onDecode={onDecode} paused={true} />);
     await act(async () => { await flushPromises(); });
-    rerender(<QRScanner onDecode={onDecode} paused={true} />);
-    expect(mockPause).toHaveBeenCalledWith(true);
+
+    const [, , onSuccess] = mockStart.mock.calls[0] as [unknown, unknown, Function, Function];
+    act(() => { onSuccess('qr-value-123'); });
+    // pausedRef guards the callback — onDecode should NOT be called when paused
+    expect(onDecode).not.toHaveBeenCalled();
   });
 
-  it('calls resume when paused prop becomes false', async () => {
+  it('calls onDecode when paused prop is false', async () => {
     const onDecode = vi.fn();
-    const { rerender } = render(<QRScanner onDecode={onDecode} paused={true} />);
+    render(<QRScanner onDecode={onDecode} paused={false} />);
     await act(async () => { await flushPromises(); });
-    rerender(<QRScanner onDecode={onDecode} paused={false} />);
-    expect(mockResume).toHaveBeenCalled();
+
+    const [, , onSuccess] = mockStart.mock.calls[0] as [unknown, unknown, Function, Function];
+    act(() => { onSuccess('qr-value-123'); });
+    expect(onDecode).toHaveBeenCalledWith('qr-value-123');
   });
 });

@@ -11,6 +11,7 @@ import { writeAudit, AuditActions, getRequestMeta } from '@/lib/audit';
 import type { ExcelImportResult, ExcelRowError } from '@/shared/ui/types/excel-import.types';
 import { calculateDepreciation } from '@/lib/depreciation';
 import { locationHasBodegas } from '@/lib/location';
+import { nextAssetCode } from '@/lib/inventory/asset-code';
 import { buildAssetCreateSchema, buildAssetUpdateSchema } from './presentation/schemas/asset.schema';
 import { toAssetRow, toAssetDetailRow, assetInclude, assetDetailInclude } from './presentation/mappers/asset.mapper';
 import type {
@@ -75,9 +76,6 @@ async function computePurchasePriceBase(
   return purchasePrice * Number(rate.rateToBase);
 }
 
-function formatAssetCode(prefix: string, sequence: number): string {
-  return `NVH-${prefix}-${sequence.toString().padStart(5, '0')}`;
-}
 
 // ─── List ──────────────────────────────────────────────────────────────────
 
@@ -292,17 +290,15 @@ export async function createAssetAction(
 
   try {
     const asset = await prisma.$transaction(async (tx) => {
-      let assetCode = '';
-      for (let attempt = 0; attempt < 20; attempt++) {
-        const updatedCat = await tx.category.update({
-          where: { id: cat.id },
-          data: { sequence: { increment: 1 } },
-          select: { sequence: true, prefix: true },
-        });
-        assetCode = formatAssetCode(updatedCat.prefix, updatedCat.sequence);
-        const conflict = await tx.asset.findUnique({ where: { assetCode }, select: { id: true } });
-        if (!conflict) break;
-      }
+      // Load company to get its code for asset-code generation
+      const company = await tx.company.findUnique({
+        where: { id: dto.companyId },
+        select: { id: true, code: true },
+      });
+      if (!company) throw new Error('COMPANY_NOT_FOUND');
+
+      // Generate atomic asset code via CompanyCategorySequence (ADR-2, ACG-01)
+      const assetCode = await nextAssetCode(tx, company.id, cat.id, company.code, cat.prefix);
 
       const purchasePriceBase =
         dto.purchasePrice != null
@@ -312,6 +308,7 @@ export async function createAssetAction(
       const created = await tx.asset.create({
         data: {
           assetCode,
+          companyId: dto.companyId,
           categoryId: dto.categoryId,
           assetTag: dto.assetTag ?? null,
           hostname: dto.hostname ?? null,
@@ -674,18 +671,21 @@ export async function importAssetsAction(
 
     try {
       await prisma.$transaction(async (tx) => {
+        // Resolve company (required for asset code generation)
+        const companyCode = r.company?.trim() || null;
+        const comp = companyCode
+          ? await tx.company.findFirst({ where: { code: companyCode }, select: { id: true, code: true } })
+          : await tx.company.findFirst({ orderBy: { createdAt: 'asc' }, select: { id: true, code: true } });
+        if (!comp) throw new Error(`COMPANY_NOT_FOUND:${companyCode ?? '(no company)'}`);
+
         const cat = await tx.category.findFirst({
           where: { name: { contains: r.category!.trim() } },
           select: { id: true, prefix: true },
         });
         if (!cat) throw new Error(`CATEGORY_NOT_FOUND:${r.category}`);
 
-        const updatedCat = await tx.category.update({
-          where: { id: cat.id },
-          data: { sequence: { increment: 1 } },
-          select: { sequence: true, prefix: true },
-        });
-        const assetCode = formatAssetCode(updatedCat.prefix, updatedCat.sequence);
+        // Use atomic junction-based asset code (ACG-01)
+        const assetCode = await nextAssetCode(tx, comp.id, cat.id, comp.code, cat.prefix);
 
         // Blank location guard: location is required for asset creation
         if (!r.location?.trim()) {
@@ -726,6 +726,7 @@ export async function importAssetsAction(
         await tx.asset.create({
           data: {
             assetCode,
+            companyId: comp.id,
             categoryId: cat.id,
             brand: r.brand?.trim() || null,
             model: r.model?.trim() || null,
@@ -752,7 +753,9 @@ export async function importAssetsAction(
       inserted++;
     } catch (e) {
       const msg = e instanceof Error ? e.message : '';
-      if (msg.startsWith('CATEGORY_NOT_FOUND:'))
+      if (msg.startsWith('COMPANY_NOT_FOUND:'))
+        errors.push({ row: rowNum, field: 'company', message: `Empresa no encontrada: ${msg.split(':')[1]}` });
+      else if (msg.startsWith('CATEGORY_NOT_FOUND:'))
         errors.push({ row: rowNum, field: 'category', message: `Categoría no encontrada: ${msg.split(':')[1]}` });
       else if (msg.startsWith('LOCATION_NOT_FOUND:'))
         errors.push({ row: rowNum, field: 'location', message: `Sede no encontrada: ${msg.split(':')[1]}` });

@@ -159,7 +159,7 @@ describe('deleteCurrencyAction', () => {
     if (!result.ok) expect(result.code).toBe('CONFLICT');
   });
 
-  it('retorna HAS_CHILDREN cuando _count.assets > 0', async () => {
+  it('retorna CONFLICT cuando _count.assets > 0', async () => {
     mockAuth.mockResolvedValue(makeSession('ADMIN'));
     mockCurrency.findUnique.mockResolvedValue({
       isBase: false,
@@ -169,10 +169,10 @@ describe('deleteCurrencyAction', () => {
     const result = await deleteCurrencyAction('curr1');
 
     expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.code).toBe('HAS_CHILDREN');
+    if (!result.ok) expect(result.code).toBe('CONFLICT');
   });
 
-  it('retorna HAS_CHILDREN cuando _count.exchangeRates > 0', async () => {
+  it('retorna CONFLICT cuando _count.exchangeRates > 0', async () => {
     mockAuth.mockResolvedValue(makeSession('ADMIN'));
     mockCurrency.findUnique.mockResolvedValue({
       isBase: false,
@@ -182,10 +182,10 @@ describe('deleteCurrencyAction', () => {
     const result = await deleteCurrencyAction('curr1');
 
     expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.code).toBe('HAS_CHILDREN');
+    if (!result.ok) expect(result.code).toBe('CONFLICT');
   });
 
-  it('retorna HAS_CHILDREN cuando Prisma lanza P2003', async () => {
+  it('retorna CONFLICT cuando Prisma lanza P2003', async () => {
     mockAuth.mockResolvedValue(makeSession('ADMIN'));
     mockCurrency.findUnique.mockResolvedValue({
       isBase: false,
@@ -196,7 +196,7 @@ describe('deleteCurrencyAction', () => {
     const result = await deleteCurrencyAction('curr1');
 
     expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.code).toBe('HAS_CHILDREN');
+    if (!result.ok) expect(result.code).toBe('CONFLICT');
   });
 
   it('happy path: llama delete y revalidatePath', async () => {

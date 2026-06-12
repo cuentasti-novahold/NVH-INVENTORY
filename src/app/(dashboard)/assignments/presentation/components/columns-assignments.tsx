@@ -8,7 +8,7 @@ function formatDate(iso: string | null) {
   if (!iso) return '—';
   return new Date(iso).toLocaleDateString('es-CO', {
     year: 'numeric',
-    month: 'short',
+    month: 'long',
     day: 'numeric',
   });
 }

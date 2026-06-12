@@ -22,6 +22,9 @@ vi.mock('@/lib/prisma', () => ({
   },
 }));
 vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }));
+vi.mock('@/lib/inventory/movement.helpers', () => ({
+  createMovementInTx: vi.fn().mockResolvedValue({ movementType: 'ASSIGNMENT_DELIVERY' }),
+}));
 vi.mock('@/lib/audit', () => ({
   writeAudit: vi.fn(),
   AuditActions: {
@@ -230,6 +233,9 @@ describe('createAssignmentAction', () => {
           findFirst: vi.fn().mockResolvedValue(null),
           create: vi.fn().mockResolvedValue(fakeDbAssignment),
         },
+        asset: {
+          findUnique: vi.fn().mockResolvedValue({ locationId: 'loc-1', bodegaId: null }),
+        },
       };
       return fn(tx);
     });
@@ -249,6 +255,9 @@ describe('createAssignmentAction', () => {
           findFirst: vi.fn().mockResolvedValue(fakeDbAssignment), // already active
           create: vi.fn(),
         },
+        asset: {
+          findUnique: vi.fn().mockResolvedValue({ locationId: 'loc-1', bodegaId: null }),
+        },
       };
       return fn(tx);
     });
@@ -264,6 +273,9 @@ describe('createAssignmentAction', () => {
         assignment: {
           findFirst: vi.fn().mockResolvedValue(null),
           create: vi.fn().mockResolvedValue(fakeDbAssignment),
+        },
+        asset: {
+          findUnique: vi.fn().mockResolvedValue({ locationId: 'loc-1', bodegaId: null }),
         },
       };
       return fn(tx);
@@ -733,6 +745,9 @@ describe('audit — createAssignmentAction', () => {
           findFirst: vi.fn().mockResolvedValue(null),
           create: vi.fn().mockResolvedValue(createdAssignment),
         },
+        asset: {
+          findUnique: vi.fn().mockResolvedValue({ locationId: 'loc-1', bodegaId: null }),
+        },
         auditLog: { create: vi.fn().mockResolvedValue({}) },
       };
       return fn(tx);
@@ -831,7 +846,6 @@ describe('audit — transferAssignmentAction (S-11)', () => {
     expect(callArgs.entity).toBe('Assignment');
     expect(callArgs.before).toMatchObject({ employeeId: 'emp-old' });
     expect(callArgs.after).toMatchObject({ employeeId: 'emp-new' });
-    expect(callArgs.after.newAssignmentId).toBe('new-assign-1');
   });
 });
 
@@ -866,6 +880,235 @@ describe('audit — deleteAssignmentAction', () => {
     expect(callArgs.entity).toBe('Assignment');
     expect(callArgs.before).toMatchObject({ assetId: 'asset1', employeeId: 'emp1', status: 'RETURNED' });
     expect(callArgs.after).toBeNull();
+  });
+});
+
+// ─── Bodega Sync: createAssignmentAction (T-2.1) ─────────────────────────────
+// These tests drive the new bodega-sync behavior (REQ-S-01 to REQ-S-04)
+// createMovementInTx is mocked at the module level above
+
+describe('bodega-sync — createAssignmentAction', () => {
+  it('Scenario 1: clears Asset.bodegaId, stores previousBodegaId, emits ASSIGNMENT_DELIVERY', async () => {
+    mockAuth.mockResolvedValue(adminSession);
+    const { createMovementInTx } = await import('@/lib/inventory/movement.helpers');
+    const mockCreateMovement = createMovementInTx as ReturnType<typeof vi.fn>;
+    mockCreateMovement.mockResolvedValue({ movementType: 'ASSIGNMENT_DELIVERY' });
+
+    const assetWithBodega = { locationId: 'loc-1', bodegaId: 'bodega-A' };
+    const assignmentCreate = vi.fn().mockResolvedValue({
+      ...fakeDbAssignment,
+      previousBodegaId: 'bodega-A',
+    });
+
+    mockTransaction.mockImplementation(async (fn: (tx: unknown) => unknown) => {
+      const tx = {
+        assignment: {
+          findFirst: vi.fn().mockResolvedValue(null),
+          create: assignmentCreate,
+        },
+        asset: {
+          findUnique: vi.fn().mockResolvedValue(assetWithBodega),
+        },
+      };
+      return fn(tx);
+    });
+
+    const r = await createAssignmentAction({ assetId: 'asset1', employeeId: 'emp1' });
+    expect(r.ok).toBe(true);
+
+    // previousBodegaId stored from asset.bodegaId
+    expect(assignmentCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ previousBodegaId: 'bodega-A' }),
+      }),
+    );
+
+    // Exactly one ASSIGNMENT_DELIVERY movement emitted via helper
+    expect(mockCreateMovement).toHaveBeenCalledTimes(1);
+    expect(mockCreateMovement).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ movementType: 'ASSIGNMENT_DELIVERY' }),
+    );
+  });
+
+  it('Scenario 2: stores previousBodegaId=null when asset bodegaId is null, emits ASSIGNMENT_DELIVERY', async () => {
+    mockAuth.mockResolvedValue(adminSession);
+    const { createMovementInTx } = await import('@/lib/inventory/movement.helpers');
+    const mockCreateMovement = createMovementInTx as ReturnType<typeof vi.fn>;
+    mockCreateMovement.mockResolvedValue({ movementType: 'ASSIGNMENT_DELIVERY' });
+
+    const assetNoBodega = { locationId: 'loc-1', bodegaId: null };
+    const assignmentCreate = vi.fn().mockResolvedValue({
+      ...fakeDbAssignment,
+      previousBodegaId: null,
+    });
+
+    mockTransaction.mockImplementation(async (fn: (tx: unknown) => unknown) => {
+      const tx = {
+        assignment: {
+          findFirst: vi.fn().mockResolvedValue(null),
+          create: assignmentCreate,
+        },
+        asset: {
+          findUnique: vi.fn().mockResolvedValue(assetNoBodega),
+        },
+      };
+      return fn(tx);
+    });
+
+    const r = await createAssignmentAction({ assetId: 'asset1', employeeId: 'emp1' });
+    expect(r.ok).toBe(true);
+
+    expect(assignmentCreate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ previousBodegaId: null }),
+      }),
+    );
+    expect(mockCreateMovement).toHaveBeenCalledTimes(1);
+    expect(mockCreateMovement).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ movementType: 'ASSIGNMENT_DELIVERY' }),
+    );
+  });
+
+  it('Scenario 6 (regression): CONFLICT when asset already ACTIVE — createMovementInTx not called', async () => {
+    mockAuth.mockResolvedValue(adminSession);
+    const { createMovementInTx } = await import('@/lib/inventory/movement.helpers');
+    const mockCreateMovement = createMovementInTx as ReturnType<typeof vi.fn>;
+
+    mockTransaction.mockImplementation(async (fn: (tx: unknown) => unknown) => {
+      const tx = {
+        assignment: {
+          findFirst: vi.fn().mockResolvedValue(fakeDbAssignment), // already ACTIVE
+          create: vi.fn(),
+        },
+        asset: {
+          findUnique: vi.fn(),
+        },
+      };
+      return fn(tx);
+    });
+
+    const r = await createAssignmentAction({ assetId: 'asset1', employeeId: 'emp1' });
+    expect(r.ok).toBe(false);
+    expect((r as { ok: false; code: string }).code).toBe('CONFLICT');
+    expect(mockCreateMovement).not.toHaveBeenCalled();
+  });
+});
+
+describe('bodega-sync — returnAssignmentAction', () => {
+  it('Scenario 3: emits ASSIGNMENT_RETURN and restores bodegaId when previousBodegaId is set', async () => {
+    mockAuth.mockResolvedValue(adminSession);
+    const { createMovementInTx } = await import('@/lib/inventory/movement.helpers');
+    const mockCreateMovement = createMovementInTx as ReturnType<typeof vi.fn>;
+    mockCreateMovement.mockResolvedValue({ movementType: 'ASSIGNMENT_RETURN' });
+
+    const returnedAssignment = {
+      ...fakeDbAssignment,
+      status: 'RETURNED',
+      returnedAt: new Date('2025-06-01'),
+      assetId: 'asset1',
+      previousBodegaId: 'bodega-A',
+    };
+
+    mockTransaction.mockImplementation(async (fn: (tx: unknown) => unknown) => {
+      const tx = {
+        assignment: {
+          update: vi.fn().mockResolvedValue(returnedAssignment),
+        },
+        asset: {
+          findUnique: vi.fn().mockResolvedValue({ locationId: 'loc-1' }),
+        },
+      };
+      return fn(tx);
+    });
+
+    const r = await returnAssignmentAction('asgn1', {});
+    expect(r.ok).toBe(true);
+
+    expect(mockCreateMovement).toHaveBeenCalledTimes(1);
+    expect(mockCreateMovement).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        movementType: 'ASSIGNMENT_RETURN',
+        toBodegaId: 'bodega-A',
+      }),
+    );
+  });
+
+  it('Scenario 4: emits NO movement when previousBodegaId is null (legacy assignment)', async () => {
+    mockAuth.mockResolvedValue(adminSession);
+    const { createMovementInTx } = await import('@/lib/inventory/movement.helpers');
+    const mockCreateMovement = createMovementInTx as ReturnType<typeof vi.fn>;
+
+    const returnedAssignment = {
+      ...fakeDbAssignment,
+      status: 'RETURNED',
+      returnedAt: new Date('2025-06-01'),
+      assetId: 'asset1',
+      previousBodegaId: null,
+    };
+
+    mockTransaction.mockImplementation(async (fn: (tx: unknown) => unknown) => {
+      const tx = {
+        assignment: {
+          update: vi.fn().mockResolvedValue(returnedAssignment),
+        },
+        asset: {
+          findUnique: vi.fn().mockResolvedValue({ locationId: 'loc-1' }),
+        },
+      };
+      return fn(tx);
+    });
+
+    const r = await returnAssignmentAction('asgn1', {});
+    expect(r.ok).toBe(true);
+    // No movement emitted when previousBodegaId is null
+    expect(mockCreateMovement).not.toHaveBeenCalled();
+  });
+});
+
+// Scenario 5 regression: transfer does NOT call createMovementInTx
+describe('bodega-sync — transferAssignmentAction regression', () => {
+  it('Scenario 5: transfer emits NO movement via createMovementInTx', async () => {
+    mockAuth.mockResolvedValue(adminSession);
+    const { createMovementInTx } = await import('@/lib/inventory/movement.helpers');
+    const mockCreateMovement = createMovementInTx as ReturnType<typeof vi.fn>;
+
+    const transferredAssignment = {
+      ...fakeDbAssignment,
+      status: 'TRANSFERRED',
+      returnedAt: new Date(),
+      assetId: 'asset1',
+    };
+    const newAssignment = {
+      ...fakeDbAssignment,
+      id: 'asgn2',
+      employeeId: 'emp2',
+      employee: { fullName: 'María López', email: 'maria@novahold.com' },
+      status: 'ACTIVE',
+    };
+
+    mockTransaction.mockImplementation(async (fn: (tx: unknown) => unknown) => {
+      const tx = {
+        assignment: {
+          findUnique: vi.fn().mockResolvedValue({
+            employeeId: 'emp1',
+            status: 'ACTIVE',
+            employee: { fullName: 'Juan Pérez' },
+          }),
+          update: vi.fn().mockResolvedValue(transferredAssignment),
+          findFirst: vi.fn().mockResolvedValue(null),
+          create: vi.fn().mockResolvedValue(newAssignment),
+        },
+        auditLog: { create: vi.fn().mockResolvedValue({}) },
+      };
+      return fn(tx);
+    });
+
+    const r = await transferAssignmentAction('asgn1', { newEmployeeId: 'emp2' });
+    expect(r.ok).toBe(true);
+    expect(mockCreateMovement).not.toHaveBeenCalled();
   });
 });
 

@@ -1,0 +1,5 @@
+-- AlterTable
+ALTER TABLE `asset_movements` MODIFY `movementType` ENUM('RELOCATION', 'LOAN', 'REPAIR', 'RETURN_FROM_REPAIR', 'AUDIT', 'ASSIGNMENT_DELIVERY', 'ASSIGNMENT_RETURN') NOT NULL;
+
+-- AlterTable
+ALTER TABLE `assignments` ADD COLUMN `previousBodegaId` VARCHAR(191) NULL;

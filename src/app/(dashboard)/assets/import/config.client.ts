@@ -5,6 +5,15 @@ import type { ColumnDef } from '@/shared/excel-import/types';
 
 export const assetsImportColumns: readonly ColumnDef[] = [
   {
+    header: 'Empresa*',
+    key: 'company',
+    type: 'string',
+    required: true,
+    maxLength: 10,
+    width: 12,
+    example: 'NVH',
+  },
+  {
     header: 'Categoría*',
     key: 'category',
     type: 'string',

@@ -10,6 +10,8 @@ const TYPE_COLORS: Record<MovementType, string> = {
   REPAIR: 'bg-orange-100 text-orange-800',
   RETURN_FROM_REPAIR: 'bg-green-100 text-green-800',
   AUDIT: 'bg-slate-100 text-slate-700',
+  ASSIGNMENT_DELIVERY: 'bg-purple-100 text-purple-800',
+  ASSIGNMENT_RETURN: 'bg-teal-100 text-teal-800',
 };
 
 const TYPE_LABELS: Record<MovementType, string> = {
@@ -18,6 +20,8 @@ const TYPE_LABELS: Record<MovementType, string> = {
   REPAIR: 'Reparación',
   RETURN_FROM_REPAIR: 'Retorno',
   AUDIT: 'Auditoría',
+  ASSIGNMENT_DELIVERY: 'Entrega',
+  ASSIGNMENT_RETURN: 'Devolución',
 };
 
 function TypeBadge({ type }: { type: MovementType }) {

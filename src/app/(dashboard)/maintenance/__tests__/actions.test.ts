@@ -120,12 +120,12 @@ describe('listMaintenancesAction', () => {
     if (!result.ok) expect(result.code).toBe('FORBIDDEN');
   });
 
-  it('returns FORBIDDEN for VIEWER (no maintenance:read permission)', async () => {
+  it('allows VIEWER to list maintenances (has maintenance:read permission)', async () => {
     mockAuth.mockResolvedValue(viewerSession);
     const { listMaintenancesAction } = await import('../actions');
     const result = await listMaintenancesAction({});
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.code).toBe('FORBIDDEN');
+    // VIEWER has maintenance:read — should not be FORBIDDEN
+    expect(result.ok).toBe(true);
   });
 
   it('returns cursor-paginated rows for ADMIN', async () => {
