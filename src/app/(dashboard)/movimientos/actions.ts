@@ -181,6 +181,18 @@ export async function createMovementAction(
         );
       }
 
+      // Domain invariant: an asset under employee custody has bodegaId = null.
+      const assetState = await tx.asset.findUnique({
+        where: { id: dto.assetId },
+        select: { bodegaId: true },
+      });
+      if (!assetState || assetState.bodegaId === null) {
+        throw new ValidationAbort(
+          'assetId',
+          'El activo está asignado a un empleado y no puede trasladarse entre bodegas.',
+        );
+      }
+
       // REQ-S-09: use shared helper (also updates Asset.locationId + bodegaId atomically)
       const movement = await createMovementInTx(tx, {
         assetId: dto.assetId,

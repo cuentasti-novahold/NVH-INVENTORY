@@ -14,9 +14,11 @@ Descripción funcional de cada módulo, sus responsabilidades y el flujo complet
 6. [Traslados (Kardex)](#6-traslados-kardex)
 7. [Analytics](#7-analytics)
 8. [Configuración — Categorías](#8-configuración--categorías)
-9. [Configuración — Sedes y Bodegas](#9-configuración--sedes-y-bodegas)
-10. [Configuración — Usuarios](#10-configuración--usuarios)
-11. [Importación masiva Excel](#11-importación-masiva-excel)
+9. [Configuración — Empresas](#9-configuración--empresas)
+10. [Configuración — Monedas](#10-configuración--monedas)
+11. [Configuración — Sedes y Bodegas](#11-configuración--sedes-y-bodegas)
+12. [Configuración — Usuarios](#12-configuración--usuarios)
+13. [Importación masiva Excel](#13-importación-masiva-excel)
 
 ---
 
@@ -132,7 +134,8 @@ Módulo central del sistema. Gestiona el ciclo de vida completo de cada activo t
 
 - **Tabla única**: un solo modelo `Asset` cubre todos los tipos (laptop, monitor, mouse, celular, etc.)
 - **fieldConfig**: cada categoría define qué campos son `required`, `optional` o `hidden` para su tipo de activo
-- **assetCode**: código único generado automáticamente con formato `NVH-{PREFIX}-{NNNNN}`
+- **assetCode**: código único por empresa — formato `{EMPRESA}-{PREFIX}-{NNNNN}` (ej: `NVH-PC-00001`, `ARCHA-PC-00001`)
+- **Empresa**: cada activo pertenece a una empresa (`companyId`). La secuencia es independiente por empresa × categoría
 - **Jerarquía**: un activo puede ser componente de otro (ej: un cargador vinculado a una laptop)
 - **Estado doble**: `generalStatus` (estado físico) y `functionalStatus` (si opera correctamente)
 
@@ -170,11 +173,10 @@ Usuario completa el formulario y clic en "Guardar"
 Server Action: createAssetAction(dto)
   1. Validación Yup según fieldConfig
   2. $transaction:
-     a. category.update({ sequence: { increment: 1 } })
-     b. Genera assetCode = "NVH-{prefix}-{sequence}"
-     c. Si assetCode ya existe → reintentar (hasta 20x)
-     d. Convierte precio a COP (si moneda ≠ COP, busca TRM)
-     e. asset.create(data)
+     a. companyCategorySequence.upsert (incrementa / crea contador empresa×categoría)
+     b. Genera assetCode = "{company.code}-{prefix}-{sequence:5}"
+     c. Convierte precio a COP (si moneda ≠ COP, busca TRM por purchaseDate)
+     d. asset.create(data) incluyendo companyId
   3. revalidatePath('/assets')
         │
         ▼
@@ -567,7 +569,100 @@ Server Action: createCategoryAction(dto)
 
 ---
 
-## 9. Configuración — Sedes y Bodegas
+## 9. Configuración — Empresas
+
+### Qué hace
+
+Gestiona las empresas y subsidiarias del grupo. Cada empresa tiene un `code` corto único (ej: `NVH`, `ARCHA`) que se usa como prefijo en los códigos de activo.
+
+### Conceptos clave
+
+- **Datos maestros globales**: las categorías son compartidas entre todas las empresas — NO hay categorías por empresa
+- **Secuencia independiente**: cada par (empresa × categoría) mantiene su propio contador en `CompanyCategorySequence`
+- **Inmutabilidad del código**: el `code` de una empresa no debe cambiarse una vez que hay activos creados (rompería los `assetCode` existentes)
+
+### Flujo — Crear empresa
+
+```
+ADMIN navega a /settings/companies
+        │
+        ▼
+Clic en "Nueva empresa"
+        │
+        ▼
+CrudFormDialog: nombre, código (ej: "ARCHA"), isActive
+        │
+        ▼
+Server Action: createCompanyAction(dto)
+  → company.create(...)
+  (CompanyCategorySequence se crea on-demand al primer activo)
+```
+
+### Archivos clave
+
+| Archivo | Función |
+|---------|---------|
+| `src/app/(dashboard)/settings/companies/page.tsx` | Server Component |
+| `src/app/(dashboard)/settings/companies/actions.ts` | Server Actions CRUD |
+| `src/lib/inventory/asset-code.ts` | `nextAssetCode()` — upsert atómico de la secuencia |
+
+---
+
+## 10. Configuración — Monedas
+
+### Qué hace
+
+Gestiona el catálogo de monedas y el historial de tasas de cambio (TRM) contra el peso colombiano (COP). Permite que los activos se registren con su precio original en cualquier moneda, convirtiéndolo automáticamente a COP para cálculos de depreciación.
+
+### Conceptos clave
+
+- **Moneda base**: COP — `isBase = true`. Todos los activos almacenan `purchasePriceBase` en COP
+- **Historial de tasas**: cada `ExchangeRate` tiene `effectiveDate`. Al crear un activo, el sistema busca la tasa más reciente en o antes de `purchaseDate`
+- **Inmutabilidad**: las tasas históricas no deben editarse una vez creadas (afectan cálculos de depreciación de activos ya ingresados)
+
+### Flujo — Registrar nueva TRM
+
+```
+ADMIN navega a /settings/currencies
+        │
+        ▼
+Selecciona moneda (ej: USD) → clic en "Nueva tasa"
+        │
+        ▼
+CrudFormDialog: effectiveDate + rateToBase (ej: 4150.50)
+        │
+        ▼
+Server Action: createExchangeRateAction(dto)
+  → exchangeRate.create({ currencyId, effectiveDate, rateToBase })
+```
+
+### Flujo — Conversión al crear un activo con USD
+
+```
+createAssetAction recibe: purchasePrice=1000, currencyCode='USD', purchaseDate='2024-01-15'
+        │
+        ▼
+computePurchasePriceBase():
+  1. currency.findUnique({ code: 'USD' }) → currencyId
+  2. exchangeRate.findFirst({ currencyId, effectiveDate ≤ '2024-01-15', ORDER BY effectiveDate DESC })
+     → rateToBase = 4150.00
+  3. purchasePriceBase = 1000 × 4150 = 4 150 000 COP
+        │
+        ▼
+asset.create({ purchasePrice: 1000, currencyCode: 'USD', purchasePriceBase: 4150000 })
+```
+
+### Archivos clave
+
+| Archivo | Función |
+|---------|---------|
+| `src/app/(dashboard)/settings/currencies/page.tsx` | Server Component |
+| `src/app/(dashboard)/settings/currencies/actions.ts` | CRUD monedas + tasas |
+| `src/app/(dashboard)/assets/actions.ts` → `computePurchasePriceBase()` | Conversión en creación/edición |
+
+---
+
+## 11. Configuración — Sedes y Bodegas  
 
 ### Qué hace
 
@@ -613,7 +708,7 @@ Server Action: createLocationAction(dto)
 
 ---
 
-## 10. Configuración — Usuarios
+## 12. Configuración — Usuarios
 
 ### Qué hace
 
@@ -648,7 +743,7 @@ Server Action: updateUserRole(userId, newRole)
 
 ---
 
-## 11. Importación masiva Excel
+## 13. Importación masiva Excel
 
 ### Qué hace
 
@@ -704,6 +799,7 @@ ImportLog guardado en DB para auditoría
 
 | Columna | Requerida | Descripción |
 |---------|-----------|-------------|
+| `company` | SÍ | Código de empresa (ej: `NVH`, `ARCHA`) |
 | `category` | SÍ | Nombre exacto de la categoría |
 | `brand` | No | Marca del equipo |
 | `model` | No | Modelo |
@@ -744,35 +840,37 @@ ImportLog guardado en DB para auditoría
   ────────────────────────────
   1. SUPER_ADMIN crea países → ciudades → sedes → bodegas
   2. SUPER_ADMIN crea categorías con fieldConfig y prefix
-  3. SUPER_ADMIN sube empleados (Excel o formulario)
-  4. SUPER_ADMIN asigna roles a los usuarios que se loguean
+  3. SUPER_ADMIN crea empresas (NVH, ARCHA, etc.)
+  4. SUPER_ADMIN registra monedas y tasas TRM históricas
+  5. SUPER_ADMIN sube empleados (Excel o formulario)
+  6. SUPER_ADMIN asigna roles a los usuarios que se loguean
 
   OPERACIÓN DIARIA
   ────────────────
-  5. ADMIN/TECHNICIAN crea activos (formulario o Excel masivo)
-     → Sistema genera NVH-PC-00001 automáticamente
+  7. ADMIN/TECHNICIAN crea activos (formulario o Excel masivo)
+     → Selecciona empresa → Sistema genera EMPRESA-PC-00001 automáticamente
      → Activo queda en estado GOOD, sin asignar
 
-  6. ADMIN/MANAGER asigna activo a empleado
+  8. ADMIN/MANAGER asigna activo a empleado
      → Assignment ACTIVE se crea
      → El activo queda vinculado a persona y sede
 
-  7. Si el activo se mueve físicamente:
+  9. Si el activo se mueve físicamente:
      → ADMIN/TECHNICIAN registra traslado en Movimientos
      → La ubicación del activo se actualiza
      → Queda registro inmutable en el Kardex
 
-  8. Si el empleado devuelve el activo:
+  10. Si el empleado devuelve el activo:
      → Assignment pasa a RETURNED
      → Activo queda disponible para reasignar
 
-  9. Si el activo se transfiere a otro empleado:
+  11. Si el activo se transfiere a otro empleado:
      → Assignment original → TRANSFERRED
      → Nueva Assignment → ACTIVE para el receptor
 
   ANÁLISIS
   ────────
-  10. MANAGER/ADMIN consulta Analytics:
+  12. MANAGER/ADMIN consulta Analytics:
       → Ve el estado del inventario completo
       → Identifica activos depreciados o sin asignar
       → Revisa movimientos por sede

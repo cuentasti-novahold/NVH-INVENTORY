@@ -25,6 +25,10 @@ vi.mock('@/lib/prisma', () => ({
     importLog: { create: vi.fn() },
     company: { findUnique: vi.fn(), findFirst: vi.fn() },
     companyCategorySequence: { upsert: vi.fn() },
+    depreciationSnapshot: {
+      deleteMany: vi.fn(),
+      createMany: vi.fn(),
+    },
     $transaction: vi.fn(),
   },
 }));
@@ -63,6 +67,7 @@ import { writeAudit, getRequestMeta } from '@/lib/audit';
 import {
   listAssetsAction,
   searchAssetsAction,
+  searchAssetsForTransferAction,
   getCategoryFieldConfigAction,
   getAssetLocationAction,
   createAssetAction,
@@ -75,6 +80,7 @@ import {
   exportDepreciationAction,
   exportExpiringAction,
   getAssetHistoryAction,
+  generateDepreciationSnapshotsAction,
 } from '../actions';
 import { locationHasBodegas } from '@/lib/location';
 
@@ -1206,5 +1212,130 @@ describe('createAssetAction — multi-company asset code (T-5.1)', () => {
         data: expect.objectContaining({ companyId: 'cmp1' }),
       }),
     );
+  });
+});
+
+// ─── T-1.3 / T-1.4: searchAssetsForTransferAction (movement-assignment-guard) ──
+
+describe('searchAssetsForTransferAction', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockHasPermission.mockImplementation(realHasPermission.fn);
+  });
+
+  it('T-1.3: calls prisma.asset.findMany with bodegaId not null and no ACTIVE assignments filter', async () => {
+    mockAuth.mockResolvedValue(viewerSession);
+    mockAsset.findMany.mockResolvedValue([
+      { id: 'a1', assetCode: 'NVH-PC-00001', brand: 'Lenovo', model: 'ThinkPad X1' },
+    ]);
+
+    const r = await searchAssetsForTransferAction('NVH');
+
+    expect(r.ok).toBe(true);
+    expect(mockAsset.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          bodegaId: { not: null },
+          assignments: { none: { status: 'ACTIVE' } },
+        }),
+      }),
+    );
+  });
+
+  it('T-1.4: returns FORBIDDEN when hasPermission returns false', async () => {
+    mockAuth.mockResolvedValue(viewerSession);
+    mockHasPermission.mockReturnValueOnce(false);
+
+    const r = await searchAssetsForTransferAction('NVH');
+
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.code).toBe('FORBIDDEN');
+    expect(mockAsset.findMany).not.toHaveBeenCalled();
+  });
+});
+
+// ─── generateDepreciationSnapshotsAction ──────────────────────────────────
+
+const mockDepreciationSnapshot = prisma.depreciationSnapshot as unknown as Record<string, ReturnType<typeof vi.fn>>;
+
+const eligibleAsset = {
+  id: 'asset1',
+  purchasePriceBase: { toString: () => '5000000' },
+  salvageValue: { toString: () => '500000' },
+  usefulLifeYears: 5,
+  purchaseDate: new Date('2022-01-01'),
+  currencyCode: 'COP',
+};
+
+describe('generateDepreciationSnapshotsAction', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('returns UNAUTHORIZED when not authenticated', async () => {
+    mockAuth.mockResolvedValue(null);
+    const r = await generateDepreciationSnapshotsAction(2025);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.code).toBe('UNAUTHORIZED');
+  });
+
+  it('returns FORBIDDEN for VIEWER', async () => {
+    mockAuth.mockResolvedValue(viewerSession);
+    const r = await generateDepreciationSnapshotsAction(2025);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.code).toBe('FORBIDDEN');
+  });
+
+  it('generates snapshots for eligible COP assets', async () => {
+    mockAuth.mockResolvedValue(adminSession);
+    mockAsset.findMany.mockResolvedValue([eligibleAsset]);
+    (prisma.$transaction as ReturnType<typeof vi.fn>).mockResolvedValue([{ count: 0 }, { count: 1 }]);
+
+    const r = await generateDepreciationSnapshotsAction(2025);
+
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.data.count).toBe(1);
+    expect(prisma.$transaction).toHaveBeenCalled();
+  });
+
+  it('fetches exchange rate for non-COP asset and sets exchangeRateUsed', async () => {
+    mockAuth.mockResolvedValue(adminSession);
+    mockAsset.findMany.mockResolvedValue([{ ...eligibleAsset, currencyCode: 'USD' }]);
+    (prisma.currency as unknown as Record<string, ReturnType<typeof vi.fn>>).findUnique
+      .mockResolvedValue({ id: 'cur-usd' });
+    (prisma.exchangeRate as unknown as Record<string, ReturnType<typeof vi.fn>>).findFirst
+      .mockResolvedValue({ rateToBase: { toString: () => '4100' } });
+    (prisma.$transaction as ReturnType<typeof vi.fn>).mockResolvedValue([{ count: 0 }, { count: 1 }]);
+
+    const r = await generateDepreciationSnapshotsAction(2025);
+
+    expect(r.ok).toBe(true);
+    expect(prisma.exchangeRate.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({ where: expect.objectContaining({ currencyId: 'cur-usd' }) }),
+    );
+  });
+
+  it('skips exchange rate lookup when currency is not found', async () => {
+    mockAuth.mockResolvedValue(adminSession);
+    mockAsset.findMany.mockResolvedValue([{ ...eligibleAsset, currencyCode: 'EUR' }]);
+    (prisma.currency as unknown as Record<string, ReturnType<typeof vi.fn>>).findUnique
+      .mockResolvedValue(null);
+    (prisma.$transaction as ReturnType<typeof vi.fn>).mockResolvedValue([{ count: 0 }, { count: 1 }]);
+
+    const r = await generateDepreciationSnapshotsAction(2025);
+
+    expect(r.ok).toBe(true);
+    expect(prisma.exchangeRate.findFirst).not.toHaveBeenCalled();
+  });
+
+  it('returns count 0 when no eligible assets exist', async () => {
+    mockAuth.mockResolvedValue(adminSession);
+    mockAsset.findMany.mockResolvedValue([]);
+    (prisma.$transaction as ReturnType<typeof vi.fn>).mockResolvedValue([{ count: 0 }, { count: 0 }]);
+
+    const r = await generateDepreciationSnapshotsAction(2025);
+
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.data.count).toBe(0);
   });
 });

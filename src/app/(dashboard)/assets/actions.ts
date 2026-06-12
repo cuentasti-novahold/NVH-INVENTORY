@@ -228,6 +228,41 @@ export async function searchAssetsAction(
   );
 }
 
+// ─── Search (autocomplete for asset transfers / movements) ──────────────────
+// Excludes assigned assets (bodegaId = null) and assets with no ACTIVE assignment
+// but still unlocated. Only returns assets physically in a bodega.
+
+export async function searchAssetsForTransferAction(
+  query: string,
+): Promise<ActionResult<{ code: string; value: string }[]>> {
+  const session = await auth();
+  if (!session?.user || !hasPermission(session.user.role as Role, 'assets', 'read'))
+    return err('FORBIDDEN', 'Sin permiso');
+  const q = query.trim();
+  const rows = await prisma.asset.findMany({
+    where: {
+      isActive: true,
+      bodegaId: { not: null },
+      assignments: { none: { status: 'ACTIVE' } },
+      OR: [
+        { assetCode: { contains: q } },
+        { brand: { contains: q } },
+        { model: { contains: q } },
+        { serialNumber: { contains: q } },
+      ],
+    },
+    select: { id: true, assetCode: true, brand: true, model: true },
+    take: 20,
+    orderBy: { assetCode: 'asc' },
+  });
+  return ok(
+    rows.map((r) => ({
+      code: r.id,
+      value: `${r.assetCode}${r.brand ? ` — ${r.brand}` : ''}${r.model ? ` ${r.model}` : ''}`,
+    })),
+  );
+}
+
 // ─── Get category fieldConfig (for dynamic form) ───────────────────────────
 
 export interface CategoryMeta {
@@ -949,6 +984,78 @@ export async function exportExpiringAction(months: 3 | 6 | 12 = 6): Promise<Expo
   }));
 
   return buildXlsx(rows, 'Por vencer', `activos-por-vencer-${months}m.xlsx`);
+}
+
+// ─── Generate Depreciation Snapshots ──────────────────────────────────────
+
+export async function generateDepreciationSnapshotsAction(
+  year: number,
+): Promise<ActionResult<{ count: number }>> {
+  const session = await auth();
+  if (!session?.user) return err('UNAUTHORIZED', 'No autenticado');
+  if (!hasPermission(session.user.role as Role, 'assets', 'create'))
+    return err('FORBIDDEN', 'Sin permiso');
+
+  const snapshotDate = new Date(`${year}-12-31T00:00:00.000Z`);
+
+  const assets = await prisma.asset.findMany({
+    where: {
+      isActive: true,
+      purchasePriceBase: { not: null },
+      usefulLifeYears: { not: null },
+      purchaseDate: { not: null },
+    },
+    select: {
+      id: true,
+      purchasePriceBase: true,
+      salvageValue: true,
+      usefulLifeYears: true,
+      purchaseDate: true,
+      currencyCode: true,
+    },
+  });
+
+  // Pre-fetch exchange rates for all distinct non-COP currencies in one pass
+  const foreignCodes = [...new Set(
+    assets.filter((a) => a.currencyCode && a.currencyCode !== 'COP').map((a) => a.currencyCode!),
+  )];
+  const rateMap = new Map<string, number>();
+  for (const code of foreignCodes) {
+    const cur = await prisma.currency.findUnique({ where: { code }, select: { id: true } });
+    if (!cur) continue;
+    const rate = await prisma.exchangeRate.findFirst({
+      where: { currencyId: cur.id, effectiveDate: { lte: snapshotDate } },
+      orderBy: { effectiveDate: 'desc' },
+      select: { rateToBase: true },
+    });
+    if (rate) rateMap.set(code, Number(rate.rateToBase.toString()));
+  }
+
+  const snapshots = assets.map((a) => {
+    const base = Number(a.purchasePriceBase!.toString());
+    const salvage = a.salvageValue ? Number(a.salvageValue.toString()) : 0;
+    const depr = calculateDepreciation(base, salvage, a.usefulLifeYears!, a.purchaseDate!, snapshotDate);
+    const exchangeRateUsed =
+      a.currencyCode && a.currencyCode !== 'COP' ? (rateMap.get(a.currencyCode) ?? null) : null;
+    return {
+      assetId: a.id,
+      snapshotDate,
+      bookValueBase: Math.round(depr.bookValue),
+      accumulatedDeprBase: Math.round(depr.accumulated),
+      annualDeprBase: Math.round(depr.annualDepr),
+      exchangeRateUsed,
+      isFullyDepreciated: depr.bookValue <= salvage,
+    };
+  });
+
+  await prisma.$transaction([
+    prisma.depreciationSnapshot.deleteMany({ where: { snapshotDate } }),
+    prisma.depreciationSnapshot.createMany({ data: snapshots }),
+  ]);
+
+  revalidatePath('/analytics');
+  revalidatePath('/assets');
+  return ok({ count: snapshots.length });
 }
 
 // ─── Asset History ─────────────────────────────────────────────────────────

@@ -11,6 +11,9 @@ vi.mock('@/lib/prisma', () => ({
       delete: vi.fn(),
       count: vi.fn(),
     },
+    asset: {
+      findUnique: vi.fn(),
+    },
     $transaction: vi.fn(),
   },
 }));
@@ -286,6 +289,7 @@ describe('createMovementAction', () => {
 
     mockTransaction.mockImplementation(async (fn: (tx: unknown) => Promise<unknown>) => {
       const tx = {
+        asset: { findUnique: vi.fn().mockResolvedValue({ bodegaId: 'bod-medellin' }) },
         auditLog: { create: vi.fn().mockResolvedValue({}) },
       };
       return fn(tx);
@@ -318,6 +322,7 @@ describe('createMovementAction', () => {
 
     mockTransaction.mockImplementation(async (fn: (tx: unknown) => Promise<unknown>) => {
       const tx = {
+        asset: { findUnique: vi.fn().mockResolvedValue({ bodegaId: 'bod-medellin' }) },
         auditLog: { create: vi.fn().mockResolvedValue({}) },
       };
       return fn(tx);
@@ -423,7 +428,7 @@ describe('createMovementAction — conditional toBodegaId guard (T-03-B / T-03-C
     mockTransaction.mockImplementation(async (fn: (tx: unknown) => Promise<unknown>) => {
       const tx = {
         assetMovement: { create: vi.fn().mockResolvedValue(fakeDbMovement) },
-        asset: { update: vi.fn().mockResolvedValue({}) },
+        asset: { findUnique: vi.fn().mockResolvedValue({ bodegaId: 'bod-medellin' }), update: vi.fn().mockResolvedValue({}) },
         auditLog: { create: vi.fn().mockResolvedValue({}) },
       };
       return fn(tx);
@@ -452,6 +457,7 @@ describe('createMovementAction — conditional toBodegaId guard (T-03-B / T-03-C
 
     mockTransaction.mockImplementation(async (fn: (tx: unknown) => Promise<unknown>) => {
       const tx = {
+        asset: { findUnique: vi.fn().mockResolvedValue({ bodegaId: 'bod-medellin' }) },
         auditLog: { create: vi.fn().mockResolvedValue({}) },
       };
       return fn(tx);
@@ -465,6 +471,65 @@ describe('createMovementAction — conditional toBodegaId guard (T-03-B / T-03-C
     });
 
     expect(result.ok).toBe(true);
+  });
+});
+
+// ─── T-1.1 / T-1.2: createMovementAction — bodegaId guard (movement-assignment-guard) ──
+
+describe('createMovementAction — bodegaId guard (assignment guard)', () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+    mockGetRequestMeta.mockResolvedValue({ ip: null, userAgent: null });
+  });
+
+  it('T-1.1: returns VALIDATION with fieldErrors.assetId when asset has bodegaId null (assigned asset)', async () => {
+    mockAuth.mockResolvedValue(adminSession);
+    mockLocationHasBodegas.mockResolvedValue(false);
+
+    mockTransaction.mockImplementation(async (fn: (tx: unknown) => Promise<unknown>) => {
+      const tx = {
+        asset: { findUnique: vi.fn().mockResolvedValue({ bodegaId: null }) },
+        auditLog: { create: vi.fn().mockResolvedValue({}) },
+      };
+      return fn(tx);
+    });
+
+    const { createMovementAction } = await import('../actions');
+    const result = await createMovementAction({
+      assetId: 'ast-assigned',
+      toLocationId: 'loc-medellin',
+      movementType: 'RELOCATION',
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.code).toBe('VALIDATION');
+    expect(result.fieldErrors?.assetId).toBeDefined();
+  });
+
+  it('T-1.2: returns VALIDATION when asset not found (findUnique returns null)', async () => {
+    mockAuth.mockResolvedValue(adminSession);
+    mockLocationHasBodegas.mockResolvedValue(false);
+
+    mockTransaction.mockImplementation(async (fn: (tx: unknown) => Promise<unknown>) => {
+      const tx = {
+        asset: { findUnique: vi.fn().mockResolvedValue(null) },
+        auditLog: { create: vi.fn().mockResolvedValue({}) },
+      };
+      return fn(tx);
+    });
+
+    const { createMovementAction } = await import('../actions');
+    const result = await createMovementAction({
+      assetId: 'ast-nonexistent',
+      toLocationId: 'loc-medellin',
+      movementType: 'RELOCATION',
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.code).toBe('VALIDATION');
+    expect(result.fieldErrors?.assetId).toBeDefined();
   });
 });
 
@@ -488,7 +553,7 @@ describe('createMovementAction — refactored to use createMovementInTx (T-3.1)'
     mockTransaction.mockImplementation(async (fn: (tx: unknown) => Promise<unknown>) => {
       const tx = {
         assetMovement: { create: vi.fn() },
-        asset: { update: vi.fn() },
+        asset: { findUnique: vi.fn().mockResolvedValue({ bodegaId: 'bod-medellin' }), update: vi.fn() },
         auditLog: { create: vi.fn().mockResolvedValue({}) },
       };
       return fn(tx);
@@ -529,7 +594,7 @@ describe('createMovementAction — refactored to use createMovementInTx (T-3.1)'
     mockTransaction.mockImplementation(async (fn: (tx: unknown) => Promise<unknown>) => {
       const tx = {
         assetMovement: { create: vi.fn() },
-        asset: { update: vi.fn() },
+        asset: { findUnique: vi.fn().mockResolvedValue({ bodegaId: 'bod-medellin' }), update: vi.fn() },
         auditLog: { create: vi.fn().mockResolvedValue({}) },
       };
       return fn(tx);
