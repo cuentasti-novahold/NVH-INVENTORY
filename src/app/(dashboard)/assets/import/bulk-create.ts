@@ -3,6 +3,7 @@
 import { prisma } from '@/lib/prisma';
 import { writeImportLog } from '@/shared/excel-import/log';
 import { locationHasBodegas } from '@/lib/location';
+import { nextAssetCode } from '@/lib/inventory/asset-code';
 import type { ImportConfirmResult } from '@/shared/excel-import/types';
 import type { AssetImportRow } from './config';
 
@@ -13,10 +14,6 @@ const VALID_STATUSES: AssetStatus[] = ['GOOD', 'REGULAR', 'BAD', 'DAMAGED', 'RET
 function parseStatus(v: string | null): AssetStatus {
   const upper = (v ?? '').toUpperCase() as AssetStatus;
   return VALID_STATUSES.includes(upper) ? upper : 'GOOD';
-}
-
-function formatAssetCode(prefix: string, sequence: number): string {
-  return `NVH-${prefix}-${sequence.toString().padStart(5, '0')}`;
 }
 
 type PrismaTx = Awaited<Parameters<Parameters<typeof prisma.$transaction>[0]>[0]>;
@@ -77,18 +74,23 @@ export async function bulkCreateAssets(
 
     try {
       await prisma.$transaction(async (tx) => {
+        // MAC-04: resolve company FIRST (before category) — required for asset code generation
+        const companyCode = r.company?.trim().toUpperCase() ?? null;
+        const comp = await tx.company.findFirst({
+          where: companyCode ? { code: companyCode } : undefined,
+          orderBy: companyCode ? undefined : { createdAt: 'asc' },
+          select: { id: true, code: true },
+        });
+        if (!comp) throw new Error(`COMPANY_NOT_FOUND:${companyCode ?? '(no company)'}`);
+
         const cat = await tx.category.findFirst({
           where: { name: { contains: r.category! } },
           select: { id: true, prefix: true },
         });
         if (!cat) throw new Error(`CATEGORY_NOT_FOUND:${r.category}`);
 
-        const updatedCat = await tx.category.update({
-          where: { id: cat.id },
-          data: { sequence: { increment: 1 } },
-          select: { sequence: true, prefix: true },
-        });
-        const assetCode = formatAssetCode(updatedCat.prefix, updatedCat.sequence);
+        // Use atomic junction-based asset code (ACG-01)
+        const assetCode = await nextAssetCode(tx, comp.id, cat.id, comp.code, cat.prefix);
 
         const loc = await tx.location.findFirst({
           where: { name: { contains: r.location! } },
@@ -118,6 +120,7 @@ export async function bulkCreateAssets(
         await tx.asset.create({
           data: {
             assetCode,
+            companyId: comp.id,
             categoryId: cat.id,
             brand: r.brand ?? null,
             model: r.model ?? null,
@@ -148,7 +151,9 @@ export async function bulkCreateAssets(
       result.failed++;
       const msg = e instanceof Error ? e.message : '';
       let error: string;
-      if (msg.startsWith('CATEGORY_NOT_FOUND:'))
+      if (msg.startsWith('COMPANY_NOT_FOUND:'))
+        error = `Empresa no encontrada: ${msg.split(':')[1]}`;
+      else if (msg.startsWith('CATEGORY_NOT_FOUND:'))
         error = `Categoría no encontrada: ${msg.split(':')[1]}`;
       else if (msg.startsWith('LOCATION_NOT_FOUND:'))
         error = `Sede no encontrada: ${msg.split(':')[1]}`;

@@ -10,6 +10,7 @@ import {
 import { bulkCreateAssets } from './bulk-create';
 
 export interface AssetImportRow {
+  company: string | null;
   category: string | null;
   location: string | null;
   bodega: string | null;
@@ -47,6 +48,17 @@ export const assetsImportConfig: ExcelImportConfig<AssetImportRow> = {
 
   masterValidations: [
     {
+      key: 'company',
+      lookup: async (values) => {
+        const rows = await prisma.company.findMany({
+          where: { code: { in: values } },
+          select: { code: true },
+        });
+        return new Set(rows.map((r) => r.code));
+      },
+      errorMessage: 'Empresa no existe',
+    },
+    {
       key: 'category',
       lookup: async (values) => {
         const rows = await prisma.category.findMany({
@@ -71,6 +83,7 @@ export const assetsImportConfig: ExcelImportConfig<AssetImportRow> = {
   ],
 
   rowTransformer: (flat): AssetImportRow => ({
+    company: trimOrNull(flat.company),
     category: trimOrNull(flat.category),
     location: trimOrNull(flat.location),
     bodega: trimOrNull(flat.bodega),

@@ -3,7 +3,7 @@
 import { useMemo, useState } from 'react';
 import { useRouter, usePathname, useSearchParams } from 'next/navigation';
 import type { ColumnDef } from '@tanstack/react-table';
-import { Pencil, PowerOff, Trash2, Plus, FileSpreadsheet, Package, QrCode } from 'lucide-react';
+import { Pencil, PowerOff, Trash2, Plus, FileSpreadsheet, Package, QrCode, TrendingDown } from 'lucide-react';
 import Link from 'next/link';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -15,7 +15,7 @@ import { assetColumns } from './columns-assets';
 import { CrudFormDialog } from '@/shared/presentation/components/form-builder/CrudFormDialog';
 import { buildAssetFormConfig, buildAssetDefaultValues, buildAssetDTO } from '../forms/asset-form.config';
 import { useAssets } from '../hooks/use-assets';
-import { exportInventoryAction, exportDepreciationAction, exportExpiringAction } from '../../actions';
+import { exportInventoryAction, exportDepreciationAction, exportExpiringAction, generateDepreciationSnapshotsAction } from '../../actions';
 import type { AssetRow } from '../dto/asset.dto';
 import type { PageInfo } from '@/shared/types/pagination';
 
@@ -58,6 +58,7 @@ export function AssetsTablePage({
   const pathname = usePathname();
   const searchParams = useSearchParams();
   const { pending, create, update, deactivate, remove } = useAssets();
+  const [snapshotPending, setSnapshotPending] = useState(false);
 
   function updateParams(patch: Record<string, string | number | null>) {
     const next = new URLSearchParams(searchParams.toString());
@@ -166,6 +167,21 @@ export function AssetsTablePage({
         ],
         actions: canWrite ? [
           { label: 'Importar Excel', icon: <FileSpreadsheet className="h-3.5 w-3.5" />, variant: 'outline', onClick: () => setUiState((s) => ({ ...s, importOpen: true })) },
+          {
+            label: snapshotPending ? 'Generando…' : 'Corte anual',
+            icon: <TrendingDown className="h-3.5 w-3.5" />,
+            variant: 'outline' as const,
+            disabled: snapshotPending,
+            onClick: async () => {
+              const year = new Date().getFullYear();
+              if (!confirm(`¿Generar corte de depreciación ${year}? Esto reemplaza los valores existentes para ese año.`)) return;
+              setSnapshotPending(true);
+              const res = await generateDepreciationSnapshotsAction(year);
+              setSnapshotPending(false);
+              if (res.ok) toast.success(`Corte ${year} generado: ${res.data.count} activos procesados.`);
+              else toast.error(res.message ?? 'Error al generar corte');
+            },
+          },
           { label: 'Nuevo activo', icon: <Plus className="h-3.5 w-3.5" />, onClick: () => setUiState((s) => ({ ...s, editing: null, createOpen: true })) },
         ] : undefined,
       }} />

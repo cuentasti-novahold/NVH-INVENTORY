@@ -9,6 +9,7 @@ type PrismaAssignmentWithRelations = {
   assignedAt: Date;
   returnedAt: Date | null;
   notes: string | null;
+  previousBodegaId?: string | null;
   createdAt: Date;
   asset: {
     assetCode: string;
@@ -26,6 +27,7 @@ export const assignmentInclude = {
   asset: { select: { assetCode: true, brand: true, model: true } },
   employee: { select: { fullName: true, email: true } },
   deliveredBy: { select: { name: true } },
+  // previousBodegaId is a scalar on Assignment — included via findUnique/create, not a relation
 } as const;
 
 export type PrismaEmployeeWithAssignmentStats = {
@@ -80,6 +82,7 @@ export function toAssignmentRow(a: PrismaAssignmentWithRelations): AssignmentRow
     deliveredById: a.deliveredById ?? null,
     deliveredByName: a.deliveredBy?.name ?? null,
     notes: a.notes ?? null,
+    previousBodegaId: a.previousBodegaId ?? null,
     createdAt: a.createdAt.toISOString(),
   };
 }

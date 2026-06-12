@@ -79,8 +79,9 @@ describe('AutocompleteField', () => {
     });
 
     // Wait for debounce (50ms) to fire
+    // searchAction receives (query, watchedValue) — watchedValue is undefined when no watch field
     await waitFor(() => {
-      expect(searchAction).toHaveBeenCalledWith('ab');
+      expect(searchAction).toHaveBeenCalledWith('ab', undefined);
     }, { timeout: 500 });
   });
 

@@ -92,7 +92,7 @@ src/modules/{module}/
 
 ## Domain Rules (concept-level — implementation lives in code)
 
-- **Asset code**: atomic via `$transaction` on `Category.sequence`. Format: `NVH-{prefix}-{seq:5}`.
+- **Asset code**: atomic via `$transaction` on `CompanyCategorySequence(companyId × categoryId)`. Format: `{company.code}-{category.prefix}-{seq:5}`.
 - **Depreciation**: dynamic, computed from `purchasePriceBase`, `salvageValue`, `usefulLifeYears`. Only `DepreciationSnapshot` rows are persisted (annual cuts).
 - **Asset fields**: `Category.fieldConfig` (`required` | `optional` | `hidden`) drives Yup validation, form rendering, and column visibility per category.
 - **RBAC**: `SUPER_ADMIN > ADMIN > MANAGER > TECHNICIAN > VIEWER`. New users default to `VIEWER`. Source of truth: `permissions.ts`.

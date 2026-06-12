@@ -7,6 +7,7 @@ import { hasPermission } from '@/lib/permissions';
 import { ok, err, type ActionResult } from '@/shared/types/action-result';
 import { writeAudit, AuditActions, getRequestMeta } from '@/lib/audit';
 import { locationHasBodegas } from '@/lib/location';
+import { createMovementInTx } from '@/lib/inventory/movement.helpers';
 import { createMovementSchema } from './presentation/schemas/movement.schema';
 import { toMovementRow, movementInclude } from './presentation/mappers/movement.mapper';
 import type { MovementRow, CreateMovementDTO } from './presentation/dto/movement.dto';
@@ -180,27 +181,29 @@ export async function createMovementAction(
         );
       }
 
-      const movement = await tx.assetMovement.create({
-        data: {
-          assetId: dto.assetId,
-          fromLocationId: dto.fromLocationId ?? null,
-          fromBodegaId: dto.fromBodegaId ?? null,
-          toLocationId: dto.toLocationId,
-          toBodegaId: dto.toBodegaId ?? null,
-          movementType: dto.movementType as never,
-          reason: dto.reason ?? null,
-          notes: dto.notes ?? null,
-          movedById: session.user!.id as string,
-        },
-        include: movementInclude,
-      });
-
-      await tx.asset.update({
+      // Domain invariant: an asset under employee custody has bodegaId = null.
+      const assetState = await tx.asset.findUnique({
         where: { id: dto.assetId },
-        data: {
-          locationId: dto.toLocationId,
-          bodegaId: dto.toBodegaId ?? null,
-        },
+        select: { bodegaId: true },
+      });
+      if (!assetState || assetState.bodegaId === null) {
+        throw new ValidationAbort(
+          'assetId',
+          'El activo está asignado a un empleado y no puede trasladarse entre bodegas.',
+        );
+      }
+
+      // REQ-S-09: use shared helper (also updates Asset.locationId + bodegaId atomically)
+      const movement = await createMovementInTx(tx, {
+        assetId: dto.assetId,
+        fromLocationId: dto.fromLocationId ?? null,
+        fromBodegaId: dto.fromBodegaId ?? null,
+        toLocationId: dto.toLocationId,
+        toBodegaId: dto.toBodegaId ?? null,
+        movementType: dto.movementType,
+        reason: dto.reason ?? null,
+        notes: dto.notes ?? null,
+        movedById: session.user!.id as string,
       });
 
       await writeAudit(tx, {

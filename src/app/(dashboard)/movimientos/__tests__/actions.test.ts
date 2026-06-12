@@ -11,16 +11,28 @@ vi.mock('@/lib/prisma', () => ({
       delete: vi.fn(),
       count: vi.fn(),
     },
+    asset: {
+      findUnique: vi.fn(),
+    },
     $transaction: vi.fn(),
   },
 }));
 vi.mock('next/cache', () => ({ revalidatePath: vi.fn() }));
 vi.mock('@/lib/location', () => ({ locationHasBodegas: vi.fn() }));
+vi.mock('@/lib/inventory/movement.helpers', () => ({
+  createMovementInTx: vi.fn(),
+}));
+vi.mock('@/lib/audit', () => ({
+  writeAudit: vi.fn().mockResolvedValue(undefined),
+  AuditActions: { MOVED: 'MOVED' },
+  getRequestMeta: vi.fn().mockResolvedValue({ ip: null, userAgent: null }),
+}));
 
 import { auth } from '@/auth';
 import { prisma } from '@/lib/prisma';
 import { revalidatePath } from 'next/cache';
 import { locationHasBodegas } from '@/lib/location';
+import { getRequestMeta } from '@/lib/audit';
 
 import { toMovementRow } from '../presentation/mappers/movement.mapper';
 
@@ -28,6 +40,7 @@ const mockAuth = auth as ReturnType<typeof vi.fn>;
 const mockMovement = prisma.assetMovement as unknown as Record<string, ReturnType<typeof vi.fn>>;
 const mockTransaction = prisma.$transaction as ReturnType<typeof vi.fn>;
 const mockLocationHasBodegas = locationHasBodegas as ReturnType<typeof vi.fn>;
+const mockGetRequestMeta = getRequestMeta as ReturnType<typeof vi.fn>;
 
 const adminSession = { user: { id: 'u1', role: 'ADMIN' } };
 const managerSession = { user: { id: 'u2', role: 'MANAGER' } };
@@ -196,6 +209,8 @@ describe('listMovementsAction', () => {
 describe('createMovementAction', () => {
   beforeEach(() => {
     vi.resetAllMocks();
+    // Restore getRequestMeta after vi.resetAllMocks() clears its return value
+    mockGetRequestMeta.mockResolvedValue({ ip: null, userAgent: null });
   });
 
   it('returns UNAUTHORIZED when session is null', async () => {
@@ -264,25 +279,20 @@ describe('createMovementAction', () => {
     if (!result.ok) expect(result.code).toBe('VALIDATION');
   });
 
-  it('creates movement successfully with all 3 transaction steps', async () => {
+  it('creates movement successfully — createMovementInTx called + writeAudit called', async () => {
     mockAuth.mockResolvedValue(adminSession);
-    const createdMovement = { ...fakeDbMovement };
+    mockLocationHasBodegas.mockResolvedValue(false);
+
+    const { createMovementInTx } = await import('@/lib/inventory/movement.helpers');
+    const mockHelper = createMovementInTx as ReturnType<typeof vi.fn>;
+    mockHelper.mockResolvedValue({ ...fakeDbMovement });
+
     mockTransaction.mockImplementation(async (fn: (tx: unknown) => Promise<unknown>) => {
       const tx = {
-        assetMovement: { create: vi.fn().mockResolvedValue(createdMovement) },
-        asset: { update: vi.fn().mockResolvedValue({}) },
+        asset: { findUnique: vi.fn().mockResolvedValue({ bodegaId: 'bod-medellin' }) },
         auditLog: { create: vi.fn().mockResolvedValue({}) },
       };
-      const result = await fn(tx);
-      expect(tx.assetMovement.create).toHaveBeenCalledTimes(1);
-      expect(tx.asset.update).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: { id: 'ast1' },
-          data: expect.objectContaining({ locationId: 'loc-medellin' }),
-        }),
-      );
-      expect(tx.auditLog.create).toHaveBeenCalledTimes(1);
-      return result;
+      return fn(tx);
     });
 
     const { createMovementAction } = await import('../actions');
@@ -295,14 +305,24 @@ describe('createMovementAction', () => {
 
     expect(result.ok).toBe(true);
     if (result.ok) expect(result.data.assetCode).toBe('NVH-PC-00001');
+    expect(mockHelper).toHaveBeenCalledTimes(1);
+    expect(mockHelper).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({ assetId: 'ast1', toLocationId: 'loc-medellin' }),
+    );
   });
 
   it('revalidates both /movimientos and /assets after success', async () => {
     mockAuth.mockResolvedValue(adminSession);
+    mockLocationHasBodegas.mockResolvedValue(false);
+
+    const { createMovementInTx } = await import('@/lib/inventory/movement.helpers');
+    const mockHelper = createMovementInTx as ReturnType<typeof vi.fn>;
+    mockHelper.mockResolvedValue(fakeDbMovement);
+
     mockTransaction.mockImplementation(async (fn: (tx: unknown) => Promise<unknown>) => {
       const tx = {
-        assetMovement: { create: vi.fn().mockResolvedValue(fakeDbMovement) },
-        asset: { update: vi.fn().mockResolvedValue({}) },
+        asset: { findUnique: vi.fn().mockResolvedValue({ bodegaId: 'bod-medellin' }) },
         auditLog: { create: vi.fn().mockResolvedValue({}) },
       };
       return fn(tx);
@@ -399,6 +419,7 @@ describe('deleteMovementAction', () => {
 describe('createMovementAction — conditional toBodegaId guard (T-03-B / T-03-C)', () => {
   beforeEach(() => {
     vi.resetAllMocks();
+    mockGetRequestMeta.mockResolvedValue({ ip: null, userAgent: null });
   });
 
   it('T-03-B: returns VALIDATION with fieldErrors.toBodegaId when toLocation has bodegas and toBodegaId absent', async () => {
@@ -407,7 +428,7 @@ describe('createMovementAction — conditional toBodegaId guard (T-03-B / T-03-C
     mockTransaction.mockImplementation(async (fn: (tx: unknown) => Promise<unknown>) => {
       const tx = {
         assetMovement: { create: vi.fn().mockResolvedValue(fakeDbMovement) },
-        asset: { update: vi.fn().mockResolvedValue({}) },
+        asset: { findUnique: vi.fn().mockResolvedValue({ bodegaId: 'bod-medellin' }), update: vi.fn().mockResolvedValue({}) },
         auditLog: { create: vi.fn().mockResolvedValue({}) },
       };
       return fn(tx);
@@ -429,10 +450,14 @@ describe('createMovementAction — conditional toBodegaId guard (T-03-B / T-03-C
   it('T-03-C: succeeds when toLocation has zero bodegas and toBodegaId absent', async () => {
     mockAuth.mockResolvedValue(adminSession);
     mockLocationHasBodegas.mockResolvedValue(false);
+
+    const { createMovementInTx } = await import('@/lib/inventory/movement.helpers');
+    const mockHelper = createMovementInTx as ReturnType<typeof vi.fn>;
+    mockHelper.mockResolvedValue(fakeDbMovement);
+
     mockTransaction.mockImplementation(async (fn: (tx: unknown) => Promise<unknown>) => {
       const tx = {
-        assetMovement: { create: vi.fn().mockResolvedValue(fakeDbMovement) },
-        asset: { update: vi.fn().mockResolvedValue({}) },
+        asset: { findUnique: vi.fn().mockResolvedValue({ bodegaId: 'bod-medellin' }) },
         auditLog: { create: vi.fn().mockResolvedValue({}) },
       };
       return fn(tx);
@@ -446,5 +471,142 @@ describe('createMovementAction — conditional toBodegaId guard (T-03-B / T-03-C
     });
 
     expect(result.ok).toBe(true);
+  });
+});
+
+// ─── T-1.1 / T-1.2: createMovementAction — bodegaId guard (movement-assignment-guard) ──
+
+describe('createMovementAction — bodegaId guard (assignment guard)', () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+    mockGetRequestMeta.mockResolvedValue({ ip: null, userAgent: null });
+  });
+
+  it('T-1.1: returns VALIDATION with fieldErrors.assetId when asset has bodegaId null (assigned asset)', async () => {
+    mockAuth.mockResolvedValue(adminSession);
+    mockLocationHasBodegas.mockResolvedValue(false);
+
+    mockTransaction.mockImplementation(async (fn: (tx: unknown) => Promise<unknown>) => {
+      const tx = {
+        asset: { findUnique: vi.fn().mockResolvedValue({ bodegaId: null }) },
+        auditLog: { create: vi.fn().mockResolvedValue({}) },
+      };
+      return fn(tx);
+    });
+
+    const { createMovementAction } = await import('../actions');
+    const result = await createMovementAction({
+      assetId: 'ast-assigned',
+      toLocationId: 'loc-medellin',
+      movementType: 'RELOCATION',
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.code).toBe('VALIDATION');
+    expect(result.fieldErrors?.assetId).toBeDefined();
+  });
+
+  it('T-1.2: returns VALIDATION when asset not found (findUnique returns null)', async () => {
+    mockAuth.mockResolvedValue(adminSession);
+    mockLocationHasBodegas.mockResolvedValue(false);
+
+    mockTransaction.mockImplementation(async (fn: (tx: unknown) => Promise<unknown>) => {
+      const tx = {
+        asset: { findUnique: vi.fn().mockResolvedValue(null) },
+        auditLog: { create: vi.fn().mockResolvedValue({}) },
+      };
+      return fn(tx);
+    });
+
+    const { createMovementAction } = await import('../actions');
+    const result = await createMovementAction({
+      assetId: 'ast-nonexistent',
+      toLocationId: 'loc-medellin',
+      movementType: 'RELOCATION',
+    });
+
+    expect(result.ok).toBe(false);
+    if (result.ok) return;
+    expect(result.code).toBe('VALIDATION');
+    expect(result.fieldErrors?.assetId).toBeDefined();
+  });
+});
+
+// ─── T-3.1 Regression: createMovementAction uses createMovementInTx helper ─────
+
+describe('createMovementAction — refactored to use createMovementInTx (T-3.1)', () => {
+  beforeEach(() => {
+    vi.resetAllMocks();
+    mockGetRequestMeta.mockResolvedValue({ ip: null, userAgent: null });
+  });
+
+  it('delegates movement creation and asset update to createMovementInTx', async () => {
+    mockAuth.mockResolvedValue(adminSession);
+    mockLocationHasBodegas.mockResolvedValue(false);
+
+    const { createMovementInTx } = await import('@/lib/inventory/movement.helpers');
+    const mockHelper = createMovementInTx as ReturnType<typeof vi.fn>;
+    // After refactor, helper returns the movement with include
+    mockHelper.mockResolvedValue(fakeDbMovement);
+
+    mockTransaction.mockImplementation(async (fn: (tx: unknown) => Promise<unknown>) => {
+      const tx = {
+        assetMovement: { create: vi.fn() },
+        asset: { findUnique: vi.fn().mockResolvedValue({ bodegaId: 'bod-medellin' }), update: vi.fn() },
+        auditLog: { create: vi.fn().mockResolvedValue({}) },
+      };
+      return fn(tx);
+    });
+
+    const { createMovementAction } = await import('../actions');
+    const result = await createMovementAction({
+      assetId: 'ast1',
+      toLocationId: 'loc-medellin',
+      movementType: 'RELOCATION',
+      reason: 'Traslado de sede',
+    });
+
+    expect(result.ok).toBe(true);
+    // createMovementInTx must have been called (proves refactor)
+    expect(mockHelper).toHaveBeenCalledTimes(1);
+    expect(mockHelper).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        assetId: 'ast1',
+        toLocationId: 'loc-medellin',
+        movementType: 'RELOCATION',
+      }),
+    );
+  });
+
+  it('still calls writeAudit after createMovementInTx', async () => {
+    mockAuth.mockResolvedValue(adminSession);
+    mockLocationHasBodegas.mockResolvedValue(false);
+
+    const { createMovementInTx } = await import('@/lib/inventory/movement.helpers');
+    const mockHelper = createMovementInTx as ReturnType<typeof vi.fn>;
+    mockHelper.mockResolvedValue(fakeDbMovement);
+
+    const { writeAudit } = await import('@/lib/audit');
+    const mockWriteAudit = writeAudit as ReturnType<typeof vi.fn>;
+
+    mockTransaction.mockImplementation(async (fn: (tx: unknown) => Promise<unknown>) => {
+      const tx = {
+        assetMovement: { create: vi.fn() },
+        asset: { findUnique: vi.fn().mockResolvedValue({ bodegaId: 'bod-medellin' }), update: vi.fn() },
+        auditLog: { create: vi.fn().mockResolvedValue({}) },
+      };
+      return fn(tx);
+    });
+
+    const { createMovementAction } = await import('../actions');
+    await createMovementAction({
+      assetId: 'ast1',
+      toLocationId: 'loc-medellin',
+      movementType: 'RELOCATION',
+    });
+
+    expect(mockWriteAudit).toHaveBeenCalledTimes(1);
   });
 });

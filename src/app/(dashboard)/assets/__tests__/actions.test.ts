@@ -23,6 +23,12 @@ vi.mock('@/lib/prisma', () => ({
     currency: { findUnique: vi.fn() },
     exchangeRate: { findFirst: vi.fn() },
     importLog: { create: vi.fn() },
+    company: { findUnique: vi.fn(), findFirst: vi.fn() },
+    companyCategorySequence: { upsert: vi.fn() },
+    depreciationSnapshot: {
+      deleteMany: vi.fn(),
+      createMany: vi.fn(),
+    },
     $transaction: vi.fn(),
   },
 }));
@@ -61,6 +67,7 @@ import { writeAudit, getRequestMeta } from '@/lib/audit';
 import {
   listAssetsAction,
   searchAssetsAction,
+  searchAssetsForTransferAction,
   getCategoryFieldConfigAction,
   getAssetLocationAction,
   createAssetAction,
@@ -73,6 +80,7 @@ import {
   exportDepreciationAction,
   exportExpiringAction,
   getAssetHistoryAction,
+  generateDepreciationSnapshotsAction,
 } from '../actions';
 import { locationHasBodegas } from '@/lib/location';
 
@@ -108,6 +116,8 @@ const baseAsset = {
   assetCode: 'NVH-PC-00001',
   assetTag: null,
   hostname: null,
+  companyId: 'cmp1',
+  company: { id: 'cmp1', code: 'NVH', name: 'Novahold' },
   categoryId: 'cat1',
   brand: 'Lenovo',
   model: 'ThinkPad X1',
@@ -259,13 +269,16 @@ describe('createAssetAction', () => {
     expect((r as { ok: false; code: string }).code).toBe('FORBIDDEN');
   });
 
-  it('creates asset with atomic assetCode NVH-{PREFIX}-{SEQ}', async () => {
+  it('creates asset with atomic assetCode {COMPANY}-{PREFIX}-{SEQ}', async () => {
     mockAuth.mockResolvedValue(adminSession);
     mockCategory.findUnique.mockResolvedValue(baseCategory);
     (prisma.$transaction as ReturnType<typeof vi.fn>).mockImplementation(async (fn: (tx: unknown) => Promise<unknown>) => {
       const tx = {
-        category: {
-          update: vi.fn().mockResolvedValue({ ...baseCategory, sequence: 1 }),
+        company: {
+          findUnique: vi.fn().mockResolvedValue({ id: 'cmp1', code: 'NVH' }),
+        },
+        companyCategorySequence: {
+          upsert: vi.fn().mockResolvedValue({ sequence: 1 }),
         },
         asset: {
           findUnique: vi.fn().mockResolvedValue(null), // no assetCode conflict
@@ -282,6 +295,7 @@ describe('createAssetAction', () => {
     });
     mockLocationHasBodegas.mockResolvedValue(false);
     const r = await createAssetAction({
+      companyId: 'cmp1',
       categoryId: 'cat1',
       brand: 'Lenovo',
       model: 'ThinkPad X1',
@@ -301,14 +315,15 @@ describe('createAssetAction', () => {
     mockLocationHasBodegas.mockResolvedValue(false);
     (prisma.$transaction as ReturnType<typeof vi.fn>).mockImplementation(async (fn: (tx: unknown) => Promise<unknown>) => {
       const tx = {
-        category: { update: vi.fn().mockResolvedValue({ ...baseCategory, sequence: 1 }) },
+        company: { findUnique: vi.fn().mockResolvedValue({ id: 'cmp1', code: 'NVH' }) },
+        companyCategorySequence: { upsert: vi.fn().mockResolvedValue({ sequence: 1 }) },
         asset: { findUnique: vi.fn().mockResolvedValue(null), create: vi.fn().mockRejectedValue({ code: 'P2002', meta: { target: 'serialNumber' } }) },
         exchangeRate: { findFirst: vi.fn().mockResolvedValue(null) },
         currency: { findUnique: vi.fn().mockResolvedValue(null) },
       };
       return fn(tx);
     });
-    const r = await createAssetAction({ categoryId: 'cat1', serialNumber: 'SN-001', processor: 'i7', ram: '16GB', locationId: 'loc-1' });
+    const r = await createAssetAction({ companyId: 'cmp1', categoryId: 'cat1', serialNumber: 'SN-001', processor: 'i7', ram: '16GB', locationId: 'loc-1' });
     expect(r.ok).toBe(false);
     expect((r as { ok: false; code: string }).code).toBe('CONFLICT');
   });
@@ -476,11 +491,11 @@ describe('importAssetsAction', () => {
     mockImportLog.create.mockResolvedValue({});
     (prisma.$transaction as ReturnType<typeof vi.fn>).mockImplementation(async (fn: (tx: unknown) => Promise<unknown>) => {
       const tx = {
+        company: { findFirst: vi.fn().mockResolvedValue({ id: 'cmp1', code: 'NVH' }) },
         category: {
           findFirst: vi.fn().mockResolvedValue(null),
-          update: vi.fn(),
         },
-        asset: { create: vi.fn() },
+        asset: { findUnique: vi.fn().mockResolvedValue(null), create: vi.fn() },
         location: { findFirst: vi.fn().mockResolvedValue(null) },
         bodega: { findFirst: vi.fn().mockResolvedValue(null) },
         exchangeRate: { findFirst: vi.fn().mockResolvedValue(null) },
@@ -489,7 +504,7 @@ describe('importAssetsAction', () => {
       return fn(tx);
     });
     const r = await importAssetsAction([
-      { category: 'Inexistente', brand: 'Lenovo', model: 'X1', serialNumber: null, hostname: null, assetTag: null, processor: null, ram: null, storageCapacity: null, storageType: null, operatingSystem: null, purchasePrice: null, currencyCode: null, usefulLifeYears: null, purchaseDate: null, generalStatus: null, location: null, bodega: null, notes: null },
+      { company: 'NVH', category: 'Inexistente', brand: 'Lenovo', model: 'X1', serialNumber: null, hostname: null, assetTag: null, processor: null, ram: null, storageCapacity: null, storageType: null, operatingSystem: null, purchasePrice: null, currencyCode: null, usefulLifeYears: null, purchaseDate: null, generalStatus: null, location: null, bodega: null, notes: null },
     ]);
     expect(r.ok).toBe(true);
     if (!r.ok) return;
@@ -504,11 +519,12 @@ describe('importAssetsAction', () => {
     mockImportLog.create.mockResolvedValue({});
     (prisma.$transaction as ReturnType<typeof vi.fn>).mockImplementation(async (fn: (tx: unknown) => Promise<unknown>) => {
       const tx = {
+        company: { findFirst: vi.fn().mockResolvedValue({ id: 'cmp1', code: 'NVH' }) },
+        companyCategorySequence: { upsert: vi.fn().mockResolvedValue({ sequence: 1 }) },
         category: {
           findFirst: vi.fn().mockResolvedValue(baseCategory),
-          update: vi.fn().mockResolvedValue({ ...baseCategory, sequence: 1 }),
         },
-        asset: { create: vi.fn().mockResolvedValue(baseAsset) },
+        asset: { findUnique: vi.fn().mockResolvedValue(null), create: vi.fn().mockResolvedValue(baseAsset) },
         location: { findFirst: vi.fn().mockResolvedValue({ id: 'loc-1' }) },
         bodega: { findFirst: vi.fn().mockResolvedValue(null), count: vi.fn().mockResolvedValue(0) },
         exchangeRate: { findFirst: vi.fn().mockResolvedValue(null) },
@@ -519,7 +535,7 @@ describe('importAssetsAction', () => {
     // Now location is required; provide a valid location name
     // bodega count returns 0 so BODEGA_REQUIRED guard is not triggered
     const r = await importAssetsAction([
-      { category: 'Computador Portátil', brand: 'Lenovo', model: 'X1', serialNumber: null, hostname: null, assetTag: null, processor: null, ram: null, storageCapacity: null, storageType: null, operatingSystem: null, purchasePrice: null, currencyCode: null, usefulLifeYears: null, purchaseDate: null, generalStatus: null, location: 'Sede Principal', bodega: null, notes: null },
+      { company: 'NVH', category: 'Computador Portátil', brand: 'Lenovo', model: 'X1', serialNumber: null, hostname: null, assetTag: null, processor: null, ram: null, storageCapacity: null, storageType: null, operatingSystem: null, purchasePrice: null, currencyCode: null, usefulLifeYears: null, purchaseDate: null, generalStatus: null, location: 'Sede Principal', bodega: null, notes: null },
     ]);
     expect(r.ok).toBe(true);
     if (!r.ok) return;
@@ -862,9 +878,8 @@ describe('createAssetAction audit — S-05', () => {
     (prisma.$transaction as ReturnType<typeof vi.fn>).mockImplementation(
       async (fn: (tx: unknown) => Promise<unknown>) => {
         const tx = {
-          category: {
-            update: vi.fn().mockResolvedValue({ ...baseCategory, sequence: 1, prefix: 'TEC' }),
-          },
+          company: { findUnique: vi.fn().mockResolvedValue({ id: 'cmp1', code: 'NVH' }) },
+          companyCategorySequence: { upsert: vi.fn().mockResolvedValue({ sequence: 1 }) },
           asset: {
             findUnique: vi.fn().mockResolvedValue(null),
             create: vi.fn().mockResolvedValue(createdAsset),
@@ -876,7 +891,7 @@ describe('createAssetAction audit — S-05', () => {
       },
     );
 
-    const r = await createAssetAction({ categoryId: 'cat-1', locationId: 'loc-1', processor: 'i7', ram: '16GB' });
+    const r = await createAssetAction({ companyId: 'cmp1', categoryId: 'cat-1', locationId: 'loc-1', processor: 'i7', ram: '16GB' });
     expect(r.ok).toBe(true);
 
     expect(mockWriteAudit).toHaveBeenCalledOnce();
@@ -1028,7 +1043,7 @@ describe('createAssetAction — conditional bodega guard (T-02-B / T-02-C)', () 
     mockAuth.mockResolvedValue(adminSession);
     mockCategory.findUnique.mockResolvedValue({ ...baseCategory, fieldConfig: {} });
     mockLocationHasBodegas.mockResolvedValue(true);
-    const r = await createAssetAction({ categoryId: 'cat1', locationId: 'loc-1' });
+    const r = await createAssetAction({ companyId: 'cmp1', categoryId: 'cat1', locationId: 'loc-1' });
     expect(r.ok).toBe(false);
     if (r.ok) return;
     expect(r.code).toBe('VALIDATION');
@@ -1041,9 +1056,8 @@ describe('createAssetAction — conditional bodega guard (T-02-B / T-02-C)', () 
     mockLocationHasBodegas.mockResolvedValue(false);
     (prisma.$transaction as ReturnType<typeof vi.fn>).mockImplementation(async (fn: (tx: unknown) => Promise<unknown>) => {
       const tx = {
-        category: {
-          update: vi.fn().mockResolvedValue({ ...baseCategory, sequence: 1 }),
-        },
+        company: { findUnique: vi.fn().mockResolvedValue({ id: 'cmp1', code: 'NVH' }) },
+        companyCategorySequence: { upsert: vi.fn().mockResolvedValue({ sequence: 1 }) },
         asset: {
           findUnique: vi.fn().mockResolvedValue(null),
           create: vi.fn().mockResolvedValue(baseAsset),
@@ -1053,7 +1067,275 @@ describe('createAssetAction — conditional bodega guard (T-02-B / T-02-C)', () 
       };
       return fn(tx);
     });
-    const r = await createAssetAction({ categoryId: 'cat1', locationId: 'loc-no-bodegas' });
+    const r = await createAssetAction({ companyId: 'cmp1', categoryId: 'cat1', locationId: 'loc-no-bodegas' });
     expect(r.ok).toBe(true);
+  });
+});
+
+// ─── T-5.1: createAssetAction — multi-company asset code (MAC-01, MAC-02, ACG-01) ─────
+// RED phase: these tests assert the new multi-company behavior.
+// They will FAIL until createAssetAction is refactored to use nextAssetCode.
+
+describe('createAssetAction — multi-company asset code (T-5.1)', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockHasPermission.mockImplementation(realHasPermission.fn);
+    mockGetRequestMeta.mockResolvedValue({ ip: '1.1.1.1', userAgent: 'ua' });
+    mockWriteAuditGlobal.mockResolvedValue(undefined);
+  });
+
+  it('calls companyCategorySequence.upsert with correct companyId_categoryId key', async () => {
+    mockAuth.mockResolvedValue(adminSession);
+    mockCategory.findUnique.mockResolvedValue({ ...baseCategory, fieldConfig: {} });
+    mockLocationHasBodegas.mockResolvedValue(false);
+
+    const upsertMock = vi.fn().mockResolvedValue({ sequence: 1 });
+    const assetFindUniqueMock = vi.fn().mockResolvedValue(null);
+    const assetCreateMock = vi.fn().mockResolvedValue({
+      ...baseAsset,
+      companyId: 'cmp1',
+      company: { id: 'cmp1', code: 'ARCHA', name: 'Archa S.A.' },
+    });
+    const companyFindUniqueMock = vi.fn().mockResolvedValue({ id: 'cmp1', code: 'ARCHA', name: 'Archa S.A.' });
+
+    (prisma.$transaction as ReturnType<typeof vi.fn>).mockImplementation(async (fn: (tx: unknown) => Promise<unknown>) => {
+      const tx = {
+        company: { findUnique: companyFindUniqueMock },
+        companyCategorySequence: { upsert: upsertMock },
+        asset: { findUnique: assetFindUniqueMock, create: assetCreateMock },
+        exchangeRate: { findFirst: vi.fn().mockResolvedValue(null) },
+        currency: { findUnique: vi.fn().mockResolvedValue(null) },
+        auditLog: { create: vi.fn().mockResolvedValue({}) },
+      };
+      return fn(tx);
+    });
+
+    const r = await createAssetAction({ categoryId: 'cat1', companyId: 'cmp1', locationId: 'loc-1' });
+    expect(r.ok).toBe(true);
+
+    // companyCategorySequence.upsert MUST be called (not category.update for sequence)
+    expect(upsertMock).toHaveBeenCalledOnce();
+    expect(upsertMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { companyId_categoryId: { companyId: 'cmp1', categoryId: 'cat1' } },
+      }),
+    );
+  });
+
+  it('does NOT call category.update for sequence increment', async () => {
+    mockAuth.mockResolvedValue(adminSession);
+    mockCategory.findUnique.mockResolvedValue({ ...baseCategory, fieldConfig: {} });
+    mockLocationHasBodegas.mockResolvedValue(false);
+
+    const categoryUpdateMock = vi.fn();
+
+    (prisma.$transaction as ReturnType<typeof vi.fn>).mockImplementation(async (fn: (tx: unknown) => Promise<unknown>) => {
+      const tx = {
+        company: { findUnique: vi.fn().mockResolvedValue({ id: 'cmp1', code: 'ARCHA' }) },
+        companyCategorySequence: { upsert: vi.fn().mockResolvedValue({ sequence: 1 }) },
+        category: { update: categoryUpdateMock },
+        asset: { findUnique: vi.fn().mockResolvedValue(null), create: vi.fn().mockResolvedValue({ ...baseAsset, companyId: 'cmp1', company: { id: 'cmp1', code: 'ARCHA', name: 'Archa S.A.' } }) },
+        exchangeRate: { findFirst: vi.fn().mockResolvedValue(null) },
+        currency: { findUnique: vi.fn().mockResolvedValue(null) },
+        auditLog: { create: vi.fn().mockResolvedValue({}) },
+      };
+      return fn(tx);
+    });
+
+    await createAssetAction({ categoryId: 'cat1', companyId: 'cmp1', locationId: 'loc-1' });
+
+    // category.update must NOT be called for sequence (ACG-01: sequence source is the junction)
+    expect(categoryUpdateMock).not.toHaveBeenCalled();
+  });
+
+  it('generates asset code as {companyCode}-{prefix}-00001 format', async () => {
+    mockAuth.mockResolvedValue(adminSession);
+    mockCategory.findUnique.mockResolvedValue({ ...baseCategory, fieldConfig: {} });
+    mockLocationHasBodegas.mockResolvedValue(false);
+
+    const assetCreateMock = vi.fn().mockResolvedValue({
+      ...baseAsset,
+      assetCode: 'ARCHA-PC-00001',
+      companyId: 'cmp1',
+      company: { id: 'cmp1', code: 'ARCHA', name: 'Archa S.A.' },
+    });
+
+    (prisma.$transaction as ReturnType<typeof vi.fn>).mockImplementation(async (fn: (tx: unknown) => Promise<unknown>) => {
+      const tx = {
+        company: { findUnique: vi.fn().mockResolvedValue({ id: 'cmp1', code: 'ARCHA' }) },
+        companyCategorySequence: { upsert: vi.fn().mockResolvedValue({ sequence: 1 }) },
+        asset: { findUnique: vi.fn().mockResolvedValue(null), create: assetCreateMock },
+        exchangeRate: { findFirst: vi.fn().mockResolvedValue(null) },
+        currency: { findUnique: vi.fn().mockResolvedValue(null) },
+        auditLog: { create: vi.fn().mockResolvedValue({}) },
+      };
+      return fn(tx);
+    });
+
+    const r = await createAssetAction({ categoryId: 'cat1', companyId: 'cmp1', locationId: 'loc-1' });
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+
+    // assetCode must use ARCHA prefix (not hardcoded NVH)
+    expect(r.data.assetCode).toBe('ARCHA-PC-00001');
+    expect(r.data.assetCode).not.toMatch(/^NVH-/);
+  });
+
+  it('persists companyId on asset.create (MAC-03)', async () => {
+    mockAuth.mockResolvedValue(adminSession);
+    mockCategory.findUnique.mockResolvedValue({ ...baseCategory, fieldConfig: {} });
+    mockLocationHasBodegas.mockResolvedValue(false);
+
+    const assetCreateMock = vi.fn().mockResolvedValue({
+      ...baseAsset,
+      companyId: 'cmp1',
+      company: { id: 'cmp1', code: 'NVH', name: 'Novahold' },
+    });
+
+    (prisma.$transaction as ReturnType<typeof vi.fn>).mockImplementation(async (fn: (tx: unknown) => Promise<unknown>) => {
+      const tx = {
+        company: { findUnique: vi.fn().mockResolvedValue({ id: 'cmp1', code: 'NVH' }) },
+        companyCategorySequence: { upsert: vi.fn().mockResolvedValue({ sequence: 1 }) },
+        asset: { findUnique: vi.fn().mockResolvedValue(null), create: assetCreateMock },
+        exchangeRate: { findFirst: vi.fn().mockResolvedValue(null) },
+        currency: { findUnique: vi.fn().mockResolvedValue(null) },
+        auditLog: { create: vi.fn().mockResolvedValue({}) },
+      };
+      return fn(tx);
+    });
+
+    await createAssetAction({ categoryId: 'cat1', companyId: 'cmp1', locationId: 'loc-1' });
+
+    // asset.create must receive companyId
+    expect(assetCreateMock).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ companyId: 'cmp1' }),
+      }),
+    );
+  });
+});
+
+// ─── T-1.3 / T-1.4: searchAssetsForTransferAction (movement-assignment-guard) ──
+
+describe('searchAssetsForTransferAction', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mockHasPermission.mockImplementation(realHasPermission.fn);
+  });
+
+  it('T-1.3: calls prisma.asset.findMany with bodegaId not null and no ACTIVE assignments filter', async () => {
+    mockAuth.mockResolvedValue(viewerSession);
+    mockAsset.findMany.mockResolvedValue([
+      { id: 'a1', assetCode: 'NVH-PC-00001', brand: 'Lenovo', model: 'ThinkPad X1' },
+    ]);
+
+    const r = await searchAssetsForTransferAction('NVH');
+
+    expect(r.ok).toBe(true);
+    expect(mockAsset.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          bodegaId: { not: null },
+          assignments: { none: { status: 'ACTIVE' } },
+        }),
+      }),
+    );
+  });
+
+  it('T-1.4: returns FORBIDDEN when hasPermission returns false', async () => {
+    mockAuth.mockResolvedValue(viewerSession);
+    mockHasPermission.mockReturnValueOnce(false);
+
+    const r = await searchAssetsForTransferAction('NVH');
+
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.code).toBe('FORBIDDEN');
+    expect(mockAsset.findMany).not.toHaveBeenCalled();
+  });
+});
+
+// ─── generateDepreciationSnapshotsAction ──────────────────────────────────
+
+const mockDepreciationSnapshot = prisma.depreciationSnapshot as unknown as Record<string, ReturnType<typeof vi.fn>>;
+
+const eligibleAsset = {
+  id: 'asset1',
+  purchasePriceBase: { toString: () => '5000000' },
+  salvageValue: { toString: () => '500000' },
+  usefulLifeYears: 5,
+  purchaseDate: new Date('2022-01-01'),
+  currencyCode: 'COP',
+};
+
+describe('generateDepreciationSnapshotsAction', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('returns UNAUTHORIZED when not authenticated', async () => {
+    mockAuth.mockResolvedValue(null);
+    const r = await generateDepreciationSnapshotsAction(2025);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.code).toBe('UNAUTHORIZED');
+  });
+
+  it('returns FORBIDDEN for VIEWER', async () => {
+    mockAuth.mockResolvedValue(viewerSession);
+    const r = await generateDepreciationSnapshotsAction(2025);
+    expect(r.ok).toBe(false);
+    if (!r.ok) expect(r.code).toBe('FORBIDDEN');
+  });
+
+  it('generates snapshots for eligible COP assets', async () => {
+    mockAuth.mockResolvedValue(adminSession);
+    mockAsset.findMany.mockResolvedValue([eligibleAsset]);
+    (prisma.$transaction as ReturnType<typeof vi.fn>).mockResolvedValue([{ count: 0 }, { count: 1 }]);
+
+    const r = await generateDepreciationSnapshotsAction(2025);
+
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.data.count).toBe(1);
+    expect(prisma.$transaction).toHaveBeenCalled();
+  });
+
+  it('fetches exchange rate for non-COP asset and sets exchangeRateUsed', async () => {
+    mockAuth.mockResolvedValue(adminSession);
+    mockAsset.findMany.mockResolvedValue([{ ...eligibleAsset, currencyCode: 'USD' }]);
+    (prisma.currency as unknown as Record<string, ReturnType<typeof vi.fn>>).findUnique
+      .mockResolvedValue({ id: 'cur-usd' });
+    (prisma.exchangeRate as unknown as Record<string, ReturnType<typeof vi.fn>>).findFirst
+      .mockResolvedValue({ rateToBase: { toString: () => '4100' } });
+    (prisma.$transaction as ReturnType<typeof vi.fn>).mockResolvedValue([{ count: 0 }, { count: 1 }]);
+
+    const r = await generateDepreciationSnapshotsAction(2025);
+
+    expect(r.ok).toBe(true);
+    expect(prisma.exchangeRate.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({ where: expect.objectContaining({ currencyId: 'cur-usd' }) }),
+    );
+  });
+
+  it('skips exchange rate lookup when currency is not found', async () => {
+    mockAuth.mockResolvedValue(adminSession);
+    mockAsset.findMany.mockResolvedValue([{ ...eligibleAsset, currencyCode: 'EUR' }]);
+    (prisma.currency as unknown as Record<string, ReturnType<typeof vi.fn>>).findUnique
+      .mockResolvedValue(null);
+    (prisma.$transaction as ReturnType<typeof vi.fn>).mockResolvedValue([{ count: 0 }, { count: 1 }]);
+
+    const r = await generateDepreciationSnapshotsAction(2025);
+
+    expect(r.ok).toBe(true);
+    expect(prisma.exchangeRate.findFirst).not.toHaveBeenCalled();
+  });
+
+  it('returns count 0 when no eligible assets exist', async () => {
+    mockAuth.mockResolvedValue(adminSession);
+    mockAsset.findMany.mockResolvedValue([]);
+    (prisma.$transaction as ReturnType<typeof vi.fn>).mockResolvedValue([{ count: 0 }, { count: 0 }]);
+
+    const r = await generateDepreciationSnapshotsAction(2025);
+
+    expect(r.ok).toBe(true);
+    if (!r.ok) return;
+    expect(r.data.count).toBe(0);
   });
 });

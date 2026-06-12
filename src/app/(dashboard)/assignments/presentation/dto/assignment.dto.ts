@@ -25,6 +25,7 @@ export interface AssignmentRow {
   deliveredById: string | null;
   deliveredByName: string | null;
   notes: string | null;
+  previousBodegaId: string | null;
   createdAt: string;
 }
 

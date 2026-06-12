@@ -207,20 +207,48 @@ model ExchangeRate {
 // CATEGORÍAS
 // ═══════════════════════════════════════════════════════
 
+model Company {
+  id                String                    @id @default(cuid())
+  code              String                    @unique
+  name              String
+  isActive          Boolean                   @default(true)
+  assets            Asset[]
+  categorySequences CompanyCategorySequence[]
+  createdAt         DateTime                  @default(now())
+  updatedAt         DateTime                  @updatedAt
+
+  @@map("companies")
+}
+
+model CompanyCategorySequence {
+  id         String   @id @default(cuid())
+  companyId  String
+  company    Company  @relation(fields: [companyId], references: [id])
+  categoryId String
+  category   Category @relation(fields: [categoryId], references: [id])
+  sequence   Int      @default(0)
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@unique([companyId, categoryId])
+  @@map("company_category_sequences")
+}
+
 model Category {
-  id                String     @id @default(cuid())
-  name              String     @unique
-  prefix            String     @unique
+  id                String                    @id @default(cuid())
+  name              String                    @unique
+  prefix            String                    @unique
   description       String?
   fieldConfig       Json?
   defaultUsefulLife Int?
-  sequence          Int        @default(0)
+  sequence          Int                       @default(0)
   parentId          String?
-  parent            Category?  @relation("SubCategories", fields: [parentId], references: [id])
-  children          Category[] @relation("SubCategories")
+  parent            Category?                 @relation("SubCategories", fields: [parentId], references: [id])
+  children          Category[]                @relation("SubCategories")
   assets            Asset[]
-  createdAt         DateTime   @default(now())
-  updatedAt         DateTime   @updatedAt
+  companySequences  CompanyCategorySequence[]
+  createdAt         DateTime                  @default(now())
+  updatedAt         DateTime                  @updatedAt
 
   @@map("categories")
 }
@@ -234,6 +262,8 @@ model Asset {
   assetCode             String                 @unique
   assetTag              String?
   hostname              String?
+  companyId             String
+  company               Company                @relation(fields: [companyId], references: [id])
   categoryId            String
   category              Category               @relation(fields: [categoryId], references: [id])
   brand                 String?
@@ -306,10 +336,11 @@ model Assignment {
   returnedAt    DateTime?
   deliveredById String?
   deliveredBy   User?            @relation("DeliveredBy", fields: [deliveredById], references: [id])
-  status        AssignmentStatus @default(ACTIVE)
-  notes         String?          @db.Text
-  createdAt     DateTime         @default(now())
-  updatedAt     DateTime         @updatedAt
+  status           AssignmentStatus @default(ACTIVE)
+  previousBodegaId String?
+  notes            String?          @db.Text
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
 
   @@map("assignments")
 }
@@ -402,6 +433,8 @@ enum MovementType {
   REPAIR
   RETURN_FROM_REPAIR
   AUDIT
+  ASSIGNMENT_DELIVERY
+  ASSIGNMENT_RETURN
 }
 
 model AssetMovement {

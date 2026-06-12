@@ -6,6 +6,9 @@ export interface AssetRow {
   assetCode: string;
   assetTag: string | null;
   hostname: string | null;
+  companyId: string;
+  companyCode: string;
+  companyName: string;
   categoryId: string;
   categoryName: string;
   categoryPrefix: string;
@@ -43,6 +46,7 @@ export interface AssetRow {
 }
 
 export interface CreateAssetDTO {
+  companyId: string;
   categoryId: string;
   assetTag?: string | null;
   hostname?: string | null;
@@ -80,6 +84,7 @@ export interface AssetDetailRow extends AssetRow {
 }
 
 export interface AssetImportRow {
+  company: string | null;
   category: string | null;
   brand: string | null;
   model: string | null;

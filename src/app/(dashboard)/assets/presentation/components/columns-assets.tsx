@@ -37,6 +37,15 @@ export const assetColumns: ColumnDef<AssetRow>[] = [
     ),
   },
   {
+    accessorKey: 'companyCode',
+    header: 'Empresa',
+    cell: ({ row }) => (
+      <span className="inline-flex items-center rounded bg-muted px-1.5 py-0.5 font-mono text-xs font-medium text-muted-foreground">
+        {row.original.companyCode}
+      </span>
+    ),
+  },
+  {
     accessorKey: 'categoryName',
     header: 'Categoría',
     cell: ({ row }) => (

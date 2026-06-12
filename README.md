@@ -117,6 +117,7 @@ La jerarquía de roles es `SUPER_ADMIN > ADMIN > MANAGER > TECHNICIAN > VIEWER`.
 | **Mantenimiento** | todo | todo | leer | leer, crear, editar | leer |
 | **Traslados** | todo | todo | leer, crear | leer, crear | leer |
 | **Categorías** | todo | todo | leer | leer | leer |
+| **Empresas** | todo | todo | leer | leer | leer |
 | **Sedes / bodegas** | todo | todo | leer | leer | leer |
 | **Departamentos** | todo | todo | leer | leer | leer |
 | **Monedas** | todo | todo | leer | leer | leer |
@@ -169,6 +170,8 @@ novahold-inventory/
 │   │   │   ├── analytics/             # Módulo analytics
 │   │   │   └── settings/              # Configuración
 │   │   │       ├── categories/        # Categorías de activos
+│   │   │       ├── companies/         # Empresas / subsidiarias
+│   │   │       ├── currencies/        # Monedas y TRM
 │   │   │       ├── locations/         # Sedes y bodegas
 │   │   │       └── users/             # Gestión de usuarios
 │   │   └── login/                     # Página de autenticación
@@ -203,7 +206,9 @@ novahold-inventory/
 │       ├── prisma.ts          # Cliente Prisma singleton
 │       ├── permissions.ts     # Matriz RBAC
 │       ├── depreciation.ts    # calculateDepreciation — lógica NIIF en línea recta
-│       └── utils.ts           # cn(), helpers
+│       ├── utils.ts           # cn(), helpers
+│       └── inventory/
+│           └── asset-code.ts  # formatAssetCode + nextAssetCode (atomic, multi-company)
 │
 └── openspec/                  # Especificaciones de features (SDD)
 ```
@@ -336,28 +341,33 @@ novahold-inventory/
 
 ## Generación de códigos de activo
 
-El código `NVH-{PREFIX}-{SECUENCIA}` es atómico y sin huecos:
+El formato es `{EMPRESA}-{PREFIX}-{SECUENCIA:5}`, donde empresa y categoría son independientes:
 
 ```
-Categoría: prefix="PC", sequence=42
-→ assetCode = "NVH-PC-00043"
+Empresa: NVH   Categoría prefix: PC   Secuencia: 42
+→ assetCode = "NVH-PC-00042"
+
+Empresa: ARCHA  Categoría prefix: PC  Secuencia: 1
+→ assetCode = "ARCHA-PC-00001"
 ```
 
-Implementación con `$transaction`: incrementa el `sequence` de la categoría y crea el activo en una sola operación. Si hay colisión por desincronización, reintenta automáticamente hasta 20 veces.
+Cada par (empresa × categoría) mantiene su propio contador en `CompanyCategorySequence`. La generación usa `$transaction` con `companyCategorySequence.upsert` — si la fila no existe se crea en `sequence=1`, si existe se incrementa. Garantiza atomicidad sin huecos ni colisiones entre empresas.
 
 ---
 
 ## Depreciación
 
-Calculada dinámicamente (nunca almacenada, salvo snapshots anuales):
+Método: línea recta (NIIF).
 
 ```
-Depreciación anual    = (Precio base COP − Valor residual) / Vida útil (años)
+Depreciación anual     = (Precio base COP − Valor residual) / Vida útil (años)
 Depreciación acumulada = min(depAnual × años transcurridos, precioBase − valorResidual)
 Valor en libros        = Precio base − Depreciación acumulada
 ```
 
-Los snapshots anuales se guardan en `DepreciationSnapshot` para auditoría contable.
+El cálculo en tiempo real lo hace `src/lib/depreciation.ts` (`calculateDepreciation()`). Para cortes contables, existe `generateDepreciationSnapshotsAction(year)` — botón "Corte anual" en la tabla de activos (ADMIN). Persiste filas en `DepreciationSnapshot` para el 31-Dic del año pedido, incluyendo `exchangeRateUsed` para activos en moneda extranjera.
+
+Ver `docs/DEPRECIATION.md` para el flujo completo.
 
 ---
 
@@ -385,9 +395,10 @@ Server Actions que generan archivos `.xlsx` con SheetJS y los serializan en base
 | Reporte | Server Action |
 |---------|--------------|
 | Inventario completo | `exportInventoryAction` |
-| Depreciación anual | `exportDepreciationAction` |
+| Depreciación (tiempo real) | `exportDepreciationAction` |
 | Activos por vencer vida útil | `exportExpiringAction` |
 | Asignaciones activas | `exportAssignmentsAction` |
+| Corte anual de depreciación | `generateDepreciationSnapshotsAction(year)` |
 
 El componente `ExcelExportButton` decodifica el base64 y dispara la descarga nativa del browser.
 
@@ -415,6 +426,7 @@ El componente `ExcelExportButton` decodifica el base64 y dispara la descarga nat
 ## Documentación adicional
 
 - [`MODULES.md`](./MODULES.md) — Descripción detallada de cada módulo y sus flujos
+- [`docs/DEPRECIATION.md`](./docs/DEPRECIATION.md) — Modelo de depreciación: cálculo, snapshots, monedas y analytics
 
 ---
 

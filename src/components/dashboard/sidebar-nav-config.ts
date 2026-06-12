@@ -40,6 +40,7 @@ export const SIDEBAR_NAV_SECTIONS: SidebarNavSection[] = [
       { href: '/settings/departments', label: 'Departamentos', icon: Building2, resource: 'departments' },
       { href: '/settings/locations', label: 'Ubicaciones', icon: MapPin, resource: 'locations' },
       { href: '/settings/currencies', label: 'Monedas', icon: Coins, resource: 'currencies' },
+      { href: '/settings/companies', label: 'Empresas', icon: Building2, resource: 'companies' },
     ],
   },
   {

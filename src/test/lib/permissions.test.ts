@@ -19,8 +19,9 @@ describe('hasPermission', () => {
         }
       }
     });
-    it('denies maintenance and users', () => {
-      expect(hasPermission('ADMIN', 'maintenance', 'create')).toBe(false);
+    it('allows maintenance and denies users', () => {
+      expect(hasPermission('ADMIN', 'maintenance', 'create')).toBe(true);
+      expect(hasPermission('ADMIN', 'maintenance', 'read')).toBe(true);
       expect(hasPermission('ADMIN', 'users', 'update')).toBe(false);
     });
   });
@@ -47,10 +48,11 @@ describe('hasPermission', () => {
       expect(hasPermission('TECHNICIAN', 'assets', 'create')).toBe(true);
       expect(hasPermission('TECHNICIAN', 'assets', 'update')).toBe(true);
     });
-    it('allows all maintenance actions', () => {
-      for (const action of ['create', 'read', 'update', 'delete'] as const) {
-        expect(hasPermission('TECHNICIAN', 'maintenance', action)).toBe(true);
-      }
+    it('allows maintenance create, read, and update but not delete', () => {
+      expect(hasPermission('TECHNICIAN', 'maintenance', 'create')).toBe(true);
+      expect(hasPermission('TECHNICIAN', 'maintenance', 'read')).toBe(true);
+      expect(hasPermission('TECHNICIAN', 'maintenance', 'update')).toBe(true);
+      expect(hasPermission('TECHNICIAN', 'maintenance', 'delete')).toBe(false);
     });
     it('allows assets:read and employees:read', () => {
       expect(hasPermission('TECHNICIAN', 'assets', 'read')).toBe(true);

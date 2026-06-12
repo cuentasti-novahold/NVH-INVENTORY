@@ -1,6 +1,6 @@
 import { Package, MapPin, FileText } from 'lucide-react';
 import type { FormConfig } from '@/shared/presentation/types/form-config.types';
-import { searchAssetsAction, getAssetLocationAction } from '@/app/(dashboard)/assets/actions';
+import { searchAssetsForTransferAction, getAssetLocationAction } from '@/app/(dashboard)/assets/actions';
 import { searchLocationsAction, searchBodegasByLocationAction } from '@/app/(dashboard)/settings/locations/actions';
 
 const MOVEMENT_TYPES = [
@@ -28,7 +28,7 @@ export function buildMovimientoFormConfig(): FormConfig {
             gridCols: 1,
             autocompleteConfig: {
               searchAction: async (q) => {
-                const r = await searchAssetsAction(q);
+                const r = await searchAssetsForTransferAction(q);
                 return r.ok ? r.data : [];
               },
               returnMode: 'code',

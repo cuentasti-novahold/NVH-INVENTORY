@@ -19,6 +19,7 @@ function conditionalString(fc: FieldConfig, key: string) {
 
 export function buildAssetCreateSchema(fieldConfig: FieldConfig = {}) {
   return yup.object({
+    companyId: yup.string().required('Empresa requerida'),
     categoryId: yup.string().required('Categoría requerida'),
     assetTag: yup.string().trim().max(80).nullable().optional(),
     hostname: yup.string().trim().max(120).nullable().optional(),

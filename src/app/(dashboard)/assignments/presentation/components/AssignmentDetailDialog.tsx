@@ -42,7 +42,7 @@ function initials(name: string) {
 function formatDate(iso: string | null) {
   if (!iso) return '—';
   return new Date(iso).toLocaleDateString('es-CO', {
-    year: 'numeric', month: 'short', day: 'numeric',
+    year: 'numeric', month: 'long', day: 'numeric',
   });
 }
 
