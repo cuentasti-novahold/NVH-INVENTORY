@@ -9,7 +9,8 @@ export interface ToolbarAction {
   label: string;
   icon?: ReactNode;
   variant?: 'default' | 'outline' | 'ghost' | 'secondary';
-  onClick: () => void;
+  disabled?: boolean;
+  onClick: () => void | Promise<void>;
 }
 
 export interface TablePageToolbarConfig {
@@ -57,6 +58,7 @@ export function TablePageToolbar({ config }: TablePageToolbarProps) {
               size="sm"
               variant={action.variant ?? 'default'}
               className="h-9 gap-1.5 text-xs"
+              disabled={action.disabled}
               onClick={action.onClick}
             >
               {action.icon}
