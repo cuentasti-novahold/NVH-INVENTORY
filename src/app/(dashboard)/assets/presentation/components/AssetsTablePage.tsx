@@ -16,6 +16,7 @@ import { CrudFormDialog } from '@/shared/presentation/components/form-builder/Cr
 import { buildAssetFormConfig, buildAssetDefaultValues, buildAssetDTO } from '../forms/asset-form.config';
 import { useAssets } from '../hooks/use-assets';
 import { exportInventoryAction, exportDepreciationAction, exportExpiringAction, generateDepreciationSnapshotsAction } from '../../actions';
+import { ConfirmDialog } from '@/shared/presentation/components/ConfirmDialog';
 import type { AssetRow } from '../dto/asset.dto';
 import type { PageInfo } from '@/shared/types/pagination';
 
@@ -59,6 +60,17 @@ export function AssetsTablePage({
   const searchParams = useSearchParams();
   const { pending, create, update, deactivate, remove } = useAssets();
   const [snapshotPending, setSnapshotPending] = useState(false);
+  const [snapshotConfirmOpen, setSnapshotConfirmOpen] = useState(false);
+  const snapshotYear = new Date().getFullYear();
+
+  async function runSnapshotCut() {
+    setSnapshotPending(true);
+    setSnapshotConfirmOpen(false);
+    const res = await generateDepreciationSnapshotsAction(snapshotYear);
+    setSnapshotPending(false);
+    if (res.ok) toast.success(`Corte ${snapshotYear} generado: ${res.data.count} activos procesados.`);
+    else toast.error(res.message ?? 'Error al generar corte');
+  }
 
   function updateParams(patch: Record<string, string | number | null>) {
     const next = new URLSearchParams(searchParams.toString());
@@ -172,15 +184,7 @@ export function AssetsTablePage({
             icon: <TrendingDown className="h-3.5 w-3.5" />,
             variant: 'outline' as const,
             disabled: snapshotPending,
-            onClick: async () => {
-              const year = new Date().getFullYear();
-              if (!confirm(`¿Generar corte de depreciación ${year}? Esto reemplaza los valores existentes para ese año.`)) return;
-              setSnapshotPending(true);
-              const res = await generateDepreciationSnapshotsAction(year);
-              setSnapshotPending(false);
-              if (res.ok) toast.success(`Corte ${year} generado: ${res.data.count} activos procesados.`);
-              else toast.error(res.message ?? 'Error al generar corte');
-            },
+            onClick: () => setSnapshotConfirmOpen(true),
           },
           { label: 'Nuevo activo', icon: <Plus className="h-3.5 w-3.5" />, onClick: () => setUiState((s) => ({ ...s, editing: null, createOpen: true })) },
         ] : undefined,
@@ -245,6 +249,46 @@ export function AssetsTablePage({
         moduleKey="assets"
         title="Importar activos"
         onSuccess={() => router.refresh()}
+      />
+
+      <ConfirmDialog
+        open={snapshotConfirmOpen}
+        onOpenChange={setSnapshotConfirmOpen}
+        title={`Corte de depreciación ${snapshotYear}`}
+        confirmLabel="Generar corte"
+        onConfirm={runSnapshotCut}
+        loading={snapshotPending}
+        description={
+          <div className="space-y-4 text-sm">
+            <p className="text-muted-foreground">
+              Calcula el valor en libros de todos los activos elegibles al{' '}
+              <span className="font-medium text-foreground">31 de diciembre de {snapshotYear}</span>{' '}
+              y guarda los resultados. El dashboard de Analytics se actualiza automáticamente.
+            </p>
+
+            <div className="rounded-lg border bg-muted/40 p-3 space-y-1">
+              <p className="text-xs font-medium text-foreground mb-2">Ejemplos para {snapshotYear}:</p>
+              <div className="space-y-1.5 text-xs text-muted-foreground">
+                <div className="flex justify-between gap-4">
+                  <span>Laptop — comprada 2023, $5.000.000</span>
+                  <span className="font-medium text-foreground whitespace-nowrap">→ $2.300.000</span>
+                </div>
+                <div className="flex justify-between gap-4">
+                  <span>Monitor — comprado 2025, $1.800.000</span>
+                  <span className="font-medium text-foreground whitespace-nowrap">→ $1.260.000</span>
+                </div>
+                <div className="flex justify-between gap-4">
+                  <span>Servidor — comprado 2021, $15.000.000</span>
+                  <span className="font-medium text-foreground whitespace-nowrap">→ depreciado</span>
+                </div>
+              </div>
+            </div>
+
+            <p className="text-xs text-muted-foreground">
+              Si ya existe un corte para {snapshotYear}, los valores anteriores se reemplazan. La operación es segura de repetir.
+            </p>
+          </div>
+        }
       />
     </div>
   );
